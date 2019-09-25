@@ -28,16 +28,16 @@ typedef struct tuple {
   }
 } tuple_t;
 
-typedef struct key {
+typedef struct tuple_key {
   char key[10];
 
-  bool operator<(const struct key &op) const {
+  bool operator<(const struct tuple_key &op) const {
     return memcmp(key, &op, KEY_SIZE) < 0;
   }
 
-  bool operator>(const struct key &op) const {
+  bool operator>(const struct tuple_key &op) const {
     return memcmp(key, &op, KEY_SIZE) > 0;
   }
-} key_t;
+} tuple_key_t;
 
 #endif //MULTICORE_EXTERNAL_SORT_GLOBAL_H

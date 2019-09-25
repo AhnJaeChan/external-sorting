@@ -13,9 +13,9 @@ using namespace std;
 
 int prepare_environment();
 
-key_t *phase1_v2(int input_fd);
-void phase2(int input_fd, key_t *thresholds);
-void radix_sort(tuple_t *data, size_t sz, key_t *thresholds, size_t *buckets, size_t num_buckets);
+tuple_key *phase1_v2(int input_fd);
+void phase2(int input_fd, tuple_key *thresholds);
+void radix_sort(tuple_t *data, size_t sz, tuple_key *thresholds, size_t *buckets, size_t num_buckets);
 void phase3(int output_fd);
 
 int main(int argc, char *argv[]) {
@@ -35,7 +35,7 @@ int main(int argc, char *argv[]) {
     return 0;
   }
 
-  key_t *thresholds = phase1_v2(input_fd);
+  tuple_key *thresholds = phase1_v2(input_fd);
   /// [Phase 1] END
 
   /// [Phase 2] START
@@ -74,7 +74,7 @@ int prepare_environment() {
   return 0;
 }
 
-key_t *phase1_v2(int input_fd) {
+tuple_key *phase1_v2(int input_fd) {
   size_t file_size = lseek(input_fd, 0, SEEK_END);                  // Input file size
   size_t num_tuples = file_size / TUPLE_SIZE;                       // Number of tuples
   size_t num_cycles = (file_size - 1) / PHASE1_BUFFER_SIZE + 1;   // Total cycles run to process the input file
@@ -87,8 +87,8 @@ key_t *phase1_v2(int input_fd) {
     return NULL;
   }
 
-  key_t *keys;
-  if ((keys = (key_t *) malloc(sizeof(key_t) * num_tuples)) == NULL) {
+  tuple_key *keys;
+  if ((keys = (tuple_key *) malloc(sizeof(tuple_key) * num_tuples)) == NULL) {
     printf("Buffer allocation failed (key buffer)\n");
     return NULL;
   }
@@ -111,7 +111,7 @@ key_t *phase1_v2(int input_fd) {
     tuple_t *data = (tuple_t *) input_buffer; // Need to use buffer as tuple type below, just a typecasting pointer
     // Need to extract only the keys
     for (size_t j = 0; j < read_amount / TUPLE_SIZE; j++) {
-      memcpy(keys + key_offset + j, data + j, sizeof(key_t));
+      memcpy(keys + key_offset + j, data + j, sizeof(tuple_key));
     }
     key_offset += read_amount / TUPLE_SIZE;
   }
@@ -127,17 +127,17 @@ key_t *phase1_v2(int input_fd) {
   // else if (key < threshold[1]): put to file 1,
   // else if (key < threshold[2]): put to file 2,
   // else: put to file 3
-  key_t *thresholds = (key_t *) malloc(sizeof(key_t) * (NUM_PARTITIONS - 1));
+  tuple_key *thresholds = (tuple_key *) malloc(sizeof(tuple_key) * (NUM_PARTITIONS - 1));
   for (size_t i = 1; i < NUM_PARTITIONS; i++) {
     printf("Threshold %zu = %zu\n", i, i * num_tuples / NUM_PARTITIONS);
-    memcpy(thresholds + i - 1, keys + i * num_tuples / NUM_PARTITIONS, sizeof(key_t));
+    memcpy(thresholds + i - 1, keys + i * num_tuples / NUM_PARTITIONS, sizeof(tuple_key));
   }
   free(keys);
 
   return thresholds;
 }
 
-void phase2(int input_fd, key *thresholds) {
+void phase2(int input_fd, tuple_key *thresholds) {
   size_t file_size = lseek(input_fd, 0, SEEK_END);              // Input file size
   size_t num_cycles = (file_size - 1) / PHASE2_BUFFER_SIZE + 1; // Total cycles run to process the input file
 
@@ -235,7 +235,7 @@ void phase3(int output_fd) {
   free(buffer);
 }
 
-size_t bucket(const key_t &key, const key_t *thresholds, size_t num_buckets) {
+size_t bucket(const tuple_key &key, const tuple_key *thresholds, size_t num_buckets) {
   size_t bucket = 0;
   while (bucket < num_buckets - 1) {
     if (key < thresholds[bucket]) {
@@ -246,11 +246,11 @@ size_t bucket(const key_t &key, const key_t *thresholds, size_t num_buckets) {
   return num_buckets - 1;
 }
 
-void radix_sort(tuple_t *data, size_t sz, key_t *thresholds, size_t *buckets, size_t num_buckets) {
+void radix_sort(tuple_t *data, size_t sz, tuple_key *thresholds, size_t *buckets, size_t num_buckets) {
   memset(buckets, 0, sizeof(size_t) * num_buckets);
 
   for (size_t i = 0; i < sz; i++) {
-    buckets[bucket(*(key_t *) &data[i], thresholds, num_buckets)]++;
+    buckets[bucket(*(tuple_key *) &data[i], thresholds, num_buckets)]++;
   }
   size_t sum = 0;
   size_t heads[num_buckets];
@@ -266,8 +266,8 @@ void radix_sort(tuple_t *data, size_t sz, key_t *thresholds, size_t *buckets, si
   for (size_t i = 0; i < num_buckets; i++) {
     while (heads[i] < tails[i]) {
       tuple_t tuple = data[heads[i]];
-      while (bucket(*(key_t *) &tuple, thresholds, num_buckets) != i) {
-        swap(tuple, data[heads[bucket(*(key_t *) &tuple, thresholds, num_buckets)]++]);
+      while (bucket(*(tuple_key *) &tuple, thresholds, num_buckets) != i) {
+        swap(tuple, data[heads[bucket(*(tuple_key *) &tuple, thresholds, num_buckets)]++]);
       }
       data[heads[i]++] = tuple;
     }
@@ -276,9 +276,9 @@ void radix_sort(tuple_t *data, size_t sz, key_t *thresholds, size_t *buckets, si
   sum = 0;
   for (size_t i = 0; i < num_buckets; i++) {
     for (size_t j = 0; j < buckets[i] - 1; j++) {
-      if (bucket(*(key_t *) &data[sum + j], thresholds, num_buckets) != i) {
+      if (bucket(*(tuple_key *) &data[sum + j], thresholds, num_buckets) != i) {
         printf("Bucket[%zu] contains wrong data which should be in bucket %zu\n", i,
-               bucket(*(key_t *) &data[sum + j], thresholds, num_buckets));
+               bucket(*(tuple_key *) &data[sum + j], thresholds, num_buckets));
       }
     }
     sum += buckets[i];
