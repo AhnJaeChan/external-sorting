@@ -14,7 +14,7 @@
 #define PHASE3_BUFFER_SIZE (1000000000) // 1Gb
 #define NUM_PARTITIONS (4) // Partitioning input data to N equal sized data
 
-#define TMP_DIRECTORY "data/tmp/"
+#define TMP_DIRECTORY "./data/"
 
 typedef struct tuple {
   char data[100];

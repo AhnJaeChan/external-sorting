@@ -22,11 +22,13 @@ int main(int argc, char *argv[]) {
   ios_base::sync_with_stdio(false);
 
   if (argc < 3) {
-    printf("Program usage: ./run input_file_name output_file_name");
+    printf("Program usage: ./run input_file_name output_file_name\n");
     return 0;
   }
 
-  prepare_environment();
+  if (prepare_environment() == -1) {
+    printf("[Error] directory cannot be made\n");
+  }
 
   /// [Phase 1] START
   int input_fd;
