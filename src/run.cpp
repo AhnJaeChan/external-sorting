@@ -11,20 +11,12 @@
 
 using namespace std;
 
-typedef struct phase2_param {
-  key_t *thresholds;
-} phase2_param_t;
-
 int prepare_environment();
 
-void phase1_v2(int input_fd, phase2_param_t &phase2_param);
-void phase2(int input_fd, phase2_param_t &phase2_param);
+key_t *phase1_v2(int input_fd);
+void phase2(int input_fd, key_t *thresholds);
 void radix_sort(tuple_t *data, size_t sz, key_t *thresholds, size_t *buckets, size_t num_buckets);
 void phase3(int output_fd);
-
-void phase1(const char *filename);
-void parallel_sort(tuple_t *data, size_t sz);
-void output_tmp(const char *filename, const char *buffer, size_t sz);
 
 int main(int argc, char *argv[]) {
   ios_base::sync_with_stdio(false);
@@ -43,12 +35,11 @@ int main(int argc, char *argv[]) {
     return 0;
   }
 
-  phase2_param_t phase2_param;
-  phase1_v2(input_fd, phase2_param);
+  key_t *thresholds = phase1_v2(input_fd);
   /// [Phase 1] END
 
   /// [Phase 2] START
-  phase2(input_fd, phase2_param);
+  phase2(input_fd, thresholds);
   /// [Phase 2] END
 
   /// [Phase 2] START
@@ -66,6 +57,8 @@ int main(int argc, char *argv[]) {
   close(input_fd);
   close(output_fd);
 
+  free(thresholds);
+
   return 0;
 }
 
@@ -81,7 +74,7 @@ int prepare_environment() {
   return 0;
 }
 
-void phase1_v2(int input_fd, phase2_param_t &phase2_param) {
+key_t *phase1_v2(int input_fd) {
   size_t file_size = lseek(input_fd, 0, SEEK_END);                  // Input file size
   size_t num_tuples = file_size / TUPLE_SIZE;                       // Number of tuples
   size_t num_cycles = (file_size - 1) / PHASE1_BUFFER_SIZE + 1;   // Total cycles run to process the input file
@@ -91,13 +84,13 @@ void phase1_v2(int input_fd, phase2_param_t &phase2_param) {
   char *input_buffer;
   if ((input_buffer = (char *) malloc(sizeof(char) * PHASE1_BUFFER_SIZE)) == NULL) {
     printf("Buffer allocation failed (input read buffer)\n");
-    return;
+    return NULL;
   }
 
   key_t *keys;
   if ((keys = (key_t *) malloc(sizeof(key_t) * num_tuples)) == NULL) {
     printf("Buffer allocation failed (key buffer)\n");
-    return;
+    return NULL;
   }
 
   // For each cycle, we must only extract the keys
@@ -134,15 +127,17 @@ void phase1_v2(int input_fd, phase2_param_t &phase2_param) {
   // else if (key < threshold[1]): put to file 1,
   // else if (key < threshold[2]): put to file 2,
   // else: put to file 3
-  phase2_param.thresholds = (key_t *) malloc(sizeof(key_t) * (NUM_PARTITIONS - 1));
+  key_t *thresholds = (key_t *) malloc(sizeof(key_t) * (NUM_PARTITIONS - 1));
   for (size_t i = 1; i < NUM_PARTITIONS; i++) {
     printf("Threshold %zu = %zu\n", i, i * num_tuples / NUM_PARTITIONS);
-    memcpy(phase2_param.thresholds + i - 1, keys + i * num_tuples / NUM_PARTITIONS, sizeof(key_t));
+    memcpy(thresholds + i - 1, keys + i * num_tuples / NUM_PARTITIONS, sizeof(key_t));
   }
   free(keys);
+
+  return thresholds;
 }
 
-void phase2(int input_fd, phase2_param_t &phase2_param) {
+void phase2(int input_fd, key *thresholds) {
   size_t file_size = lseek(input_fd, 0, SEEK_END);              // Input file size
   size_t num_cycles = (file_size - 1) / PHASE2_BUFFER_SIZE + 1; // Total cycles run to process the input file
 
@@ -180,7 +175,7 @@ void phase2(int input_fd, phase2_param_t &phase2_param) {
 
     size_t buckets[NUM_PARTITIONS];
     tuple_t *data = (tuple_t *) input_buffer; // Need to use buffer as tuple type below, just a typecasting pointer
-    radix_sort(data, read_amount / TUPLE_SIZE, phase2_param.thresholds, buckets, NUM_PARTITIONS);
+    radix_sort(data, read_amount / TUPLE_SIZE, thresholds, buckets, NUM_PARTITIONS);
 
     for (size_t j = 0; j < NUM_PARTITIONS; j++) {
       size_t sz = sizeof(tuple_t) * buckets[j];
@@ -204,7 +199,7 @@ void phase2(int input_fd, phase2_param_t &phase2_param) {
 
 void phase3(int output_fd) {
   char *buffer;
-  if ((buffer = (char *) malloc(sizeof(char) * PHASE2_BUFFER_SIZE)) == NULL) {
+  if ((buffer = (char *) malloc(sizeof(char) * PHASE3_BUFFER_SIZE)) == NULL) {
     printf("Buffer allocation failed (input read buffer)\n");
     return;
   }
@@ -291,56 +286,3 @@ void radix_sort(tuple_t *data, size_t sz, key_t *thresholds, size_t *buckets, si
   printf("Radix sort SUCCESS!\n");
 }
 
-void output_tmp(int fd, const char *buffer, size_t sz, size_t head_offset) {
-  for (size_t offset = 0; offset < sz;) {
-    size_t ret = pwrite(fd, buffer, sz - offset, head_offset + offset);
-    offset += ret;
-  }
-}
-
-// TODO: use parallel radix sort
-void parallel_sort(tuple_t *data, size_t sz) {
-  sort(data, data + sz);
-//  sort(data, data + sz, [](const tuple_t &a, const tuple_t &b) {
-//    return memcmp(&a, &b, KEY_SIZE) < 0;
-//  });
-}
-
-// Sort in memory
-void phase1(const char *filename) {
-  int fd;
-  if ((fd = open(filename, O_RDONLY)) == -1) {
-    printf("[Error] failed to open input file %s\n", filename);
-    return;
-  }
-  size_t file_size = lseek(fd, 0, SEEK_END);
-  printf("File size: %zu\n", file_size);
-
-  char *buffer;
-  if ((buffer = (char *) malloc(sizeof(char) * PHASE1_BUFFER_SIZE)) == NULL) {
-    printf("Buffer allocation failed\n");
-    return;
-  }
-
-  size_t num_partitions = (file_size - 1) / PHASE1_BUFFER_SIZE + 1;
-  printf("Num partitions: %zu\n", num_partitions);
-
-  for (size_t i = 0; i < num_partitions; i++) {
-    size_t head_offset = PHASE1_BUFFER_SIZE * i;
-    size_t read_amount = i != num_partitions - 1 ?
-                         PHASE1_BUFFER_SIZE : file_size % PHASE1_BUFFER_SIZE; // The last part will have remainders
-
-    for (size_t offset = 0; offset < read_amount;) {
-      size_t ret = pread(fd, buffer + offset, PHASE1_BUFFER_SIZE + head_offset - offset, head_offset + offset);
-      offset += ret;
-    }
-
-    printf("Read file offset %zu ~ %zu\n", head_offset, head_offset + read_amount);
-
-    auto data = (tuple_t *) buffer;
-    size_t num_data = PHASE1_BUFFER_SIZE / TUPLE_SIZE;
-  }
-
-  close(fd);
-  free(buffer);
-}
