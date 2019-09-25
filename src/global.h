@@ -11,6 +11,7 @@
 #define KEY_SIZE (10)
 #define PHASE1_BUFFER_SIZE (300000000)  // 1000000000
 #define PHASE2_BUFFER_SIZE (500000000)  // 500Mb
+#define PHASE3_BUFFER_SIZE (1000000000) // 1Gb
 #define NUM_PARTITIONS (4) // Partitioning input data to N equal sized data
 
 #define TMP_DIRECTORY "data/tmp/"

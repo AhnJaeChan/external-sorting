@@ -36,14 +36,13 @@ int main(int argc, char *argv[]) {
 
   prepare_environment();
 
+  /// [Phase 1] START
   int input_fd;
   if ((input_fd = open(argv[1], O_RDONLY)) == -1) {
     printf("[Error] failed to open input file %s\n", argv[1]);
     return 0;
   }
 
-  /// [Phase 1] START
-  // Input file's file descriptor
   phase2_param_t phase2_param;
   phase1_v2(input_fd, phase2_param);
   /// [Phase 1] END
@@ -52,11 +51,20 @@ int main(int argc, char *argv[]) {
   phase2(input_fd, phase2_param);
   /// [Phase 2] END
 
-  // Read + sort + tmp-output
-  //  phase1(argv[1]);
+  /// [Phase 2] START
+  int output_fd;
+  if ((output_fd = open(argv[2], O_RDWR | O_CREAT | O_TRUNC, 0777)) == -1) {
+    printf("[Error] failed to open input file %s\n", argv[2]);
+    return 0;
+  }
+  /// [Phase 2] END
 
-  // N-way merge
-  // phase2(argv[2]);
+  /// [Phase 3] START
+  phase3(output_fd);
+  /// [Phase 3] END
+
+  close(input_fd);
+  close(output_fd);
 
   return 0;
 }
@@ -135,8 +143,7 @@ void phase1_v2(int input_fd, phase2_param_t &phase2_param) {
 }
 
 void phase2(int input_fd, phase2_param_t &phase2_param) {
-  size_t file_size = lseek(input_fd, 0, SEEK_END);                  // Input file size
-  size_t num_tuples = file_size / TUPLE_SIZE;                       // Number of tuples
+  size_t file_size = lseek(input_fd, 0, SEEK_END);              // Input file size
   size_t num_cycles = (file_size - 1) / PHASE2_BUFFER_SIZE + 1; // Total cycles run to process the input file
 
   // Buffer for reading N bytes from file at once (N = READ_BUFFER_SIZE)
@@ -146,13 +153,13 @@ void phase2(int input_fd, phase2_param_t &phase2_param) {
     return;
   }
 
-  int output_fd[NUM_PARTITIONS];
-  size_t output_offsets[NUM_PARTITIONS];
+  int output_fds[NUM_PARTITIONS];
+  size_t head_offsets[NUM_PARTITIONS];
   for (size_t i = 0; i < NUM_PARTITIONS; i++) {
-    output_offsets[i] = 0;
+    head_offsets[i] = 0;
     string filename(TMP_DIRECTORY);
     filename += to_string(i) + ".data";
-    if ((output_fd[i] = open(filename.c_str(), O_RDWR | O_CREAT | O_TRUNC, 0777)) == -1) {
+    if ((output_fds[i] = open(filename.c_str(), O_RDWR | O_CREAT | O_TRUNC, 0777)) == -1) {
       printf("tmp file open failure on phase 2\n");
       return;
     }
@@ -178,25 +185,59 @@ void phase2(int input_fd, phase2_param_t &phase2_param) {
     for (size_t j = 0; j < NUM_PARTITIONS; j++) {
       size_t sz = sizeof(tuple_t) * buckets[j];
       for (size_t offset = 0; offset < sz;) {
-        size_t ret = pwrite(output_fd[j], input_buffer + offset, sz - offset, output_offsets[j] + offset);
+        size_t ret = pwrite(output_fds[j], input_buffer + offset, sz - offset, head_offsets[j] + offset);
         offset += ret;
       }
-      output_offsets[j] += sz;
+      head_offsets[j] += sz;
     }
   }
 
   size_t sum = 0;
   for (int i = 0; i < NUM_PARTITIONS; i++) {
-    sum += output_offsets[i];
-    close(output_fd[i]);
+    sum += head_offsets[i];
+    close(output_fds[i]);
   }
-  printf("Total of %zu bytes written\n", sum);
+  printf("[Phase 2] %zu tmp files written, total of %zu bytes\n", NUM_PARTITIONS, sum);
 
   free(input_buffer);
 }
 
 void phase3(int output_fd) {
+  char *buffer;
+  if ((buffer = (char *) malloc(sizeof(char) * PHASE2_BUFFER_SIZE)) == NULL) {
+    printf("Buffer allocation failed (input read buffer)\n");
+    return;
+  }
 
+  size_t head_offset = 0; // Offset on the last output file
+  for (size_t i = 0; i < NUM_PARTITIONS; i++) {
+    int input_fd;
+    string filename(TMP_DIRECTORY);
+    filename += to_string(i) + ".data";
+    if ((input_fd = open(filename.c_str(), O_RDONLY)) == -1) {
+      printf("tmp file open failure on phase 3\n");
+      return;
+    }
+
+    size_t file_size = lseek(input_fd, 0, SEEK_END);
+    for (size_t offset = 0; offset < file_size;) {
+      size_t ret = pread(input_fd, buffer + offset, file_size - offset, offset);
+      offset += ret;
+    }
+
+    tuple_t *data = (tuple_t *) buffer;
+    sort(data, data + file_size / TUPLE_SIZE);
+
+    for (size_t offset = 0; offset < file_size;) {
+      size_t ret = pwrite(output_fd, buffer + offset, file_size - offset, head_offset + offset);
+      offset += ret;
+    }
+    head_offset += file_size;
+  }
+
+  printf("[Phase 2] final output file written (%zu bytes)\n", head_offset);
+
+  free(buffer);
 }
 
 size_t bucket(const key_t &key, const key_t *thresholds, size_t num_buckets) {
