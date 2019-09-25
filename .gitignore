@@ -1,0 +1,17 @@
+# CLion
+.idea/
+cmake-build-*/
+CMakeLists.txt
+.idea_modules/
+
+# Mac OS
+.DS_Store
+
+# Tests
+*.data
+
+# Object files
+*.o
+
+# run file
+run
