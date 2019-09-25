@@ -19,11 +19,12 @@ int prepare_environment();
 
 void phase1_v2(int input_fd, phase2_param_t &phase2_param);
 void phase2(int input_fd, phase2_param_t &phase2_param);
-void radix_sort(tuple_t *data, size_t sz, key_t *thresholds, size_t num_buckets);
+void radix_sort(tuple_t *data, size_t sz, key_t *thresholds, size_t *buckets, size_t num_buckets);
+void phase3(int output_fd);
 
 void phase1(const char *filename);
 void parallel_sort(tuple_t *data, size_t sz);
-void output_tmp(const char *filename, size_t round, const char *buffer, size_t sz);
+void output_tmp(const char *filename, const char *buffer, size_t sz);
 
 int main(int argc, char *argv[]) {
   ios_base::sync_with_stdio(false);
@@ -49,30 +50,6 @@ int main(int argc, char *argv[]) {
 
   /// [Phase 2] START
   phase2(input_fd, phase2_param);
-  /// [Phase 2] END
-//  for (size_t i = 0; i < num_partitions; i++) {
-//    size_t head_offset = READ_BUFFER_SIZE * i;
-//    size_t read_amount = i != num_partitions - 1 ?
-//                         READ_BUFFER_SIZE : file_size % READ_BUFFER_SIZE; // The last part will have remainders
-//
-//    for (size_t offset = 0; offset < read_amount;) {
-//      size_t ret = pread(input_fd, input_buffer + offset, READ_BUFFER_SIZE + head_offset - offset,
-//                         head_offset + offset);
-//      offset += ret;
-//    }
-//
-//    tuple_t *data = (tuple_t *) input_buffer; // Need to use buffer as tuple type below, just a typecasting pointer
-//
-//    // For each tuple
-//    for (size_t j = 0; j < read_amount / TUPLE_SIZE; j++) {
-//      // Find the right place
-//      for (size_t k = 0; k < num_partitions - 1; k++) {
-//        key_t key = *(key_t *) (data + j);
-//        if (key < threshold[k]) {
-//        }
-//      }
-//    }
-//  }
   /// [Phase 2] END
 
   // Read + sort + tmp-output
@@ -169,6 +146,18 @@ void phase2(int input_fd, phase2_param_t &phase2_param) {
     return;
   }
 
+  int output_fd[NUM_PARTITIONS];
+  size_t output_offsets[NUM_PARTITIONS];
+  for (size_t i = 0; i < NUM_PARTITIONS; i++) {
+    output_offsets[i] = 0;
+    string filename(TMP_DIRECTORY);
+    filename += to_string(i) + ".data";
+    if ((output_fd[i] = open(filename.c_str(), O_RDWR | O_CREAT | O_TRUNC, 0777)) == -1) {
+      printf("tmp file open failure on phase 2\n");
+      return;
+    }
+  }
+
   for (size_t i = 0; i < num_cycles; i++) {
     size_t head_offset = PHASE2_BUFFER_SIZE * i;
     size_t read_amount = i != num_cycles - 1 ? PHASE2_BUFFER_SIZE :
@@ -182,21 +171,89 @@ void phase2(int input_fd, phase2_param_t &phase2_param) {
 
     printf("Read file offset %zu ~ %zu\n", head_offset, head_offset + read_amount);
 
-    size_t cnt[NUM_PARTITIONS];
-    memset(cnt, 0, NUM_PARTITIONS);
-
+    size_t buckets[NUM_PARTITIONS];
     tuple_t *data = (tuple_t *) input_buffer; // Need to use buffer as tuple type below, just a typecasting pointer
-    radix_sort(data, read_amount / TUPLE_SIZE, phase2_param.thresholds, NUM_PARTITIONS);
+    radix_sort(data, read_amount / TUPLE_SIZE, phase2_param.thresholds, buckets, NUM_PARTITIONS);
+
+    for (size_t j = 0; j < NUM_PARTITIONS; j++) {
+      size_t sz = sizeof(tuple_t) * buckets[j];
+      for (size_t offset = 0; offset < sz;) {
+        size_t ret = pwrite(output_fd[j], input_buffer + offset, sz - offset, output_offsets[j] + offset);
+        offset += ret;
+      }
+      output_offsets[j] += sz;
+    }
   }
+
+  size_t sum = 0;
+  for (int i = 0; i < NUM_PARTITIONS; i++) {
+    sum += output_offsets[i];
+    close(output_fd[i]);
+  }
+  printf("Total of %zu bytes written\n", sum);
 
   free(input_buffer);
 }
 
-void radix_sort(tuple_t *data, size_t sz, key_t *thresholds, size_t num_buckets) {
-  size_t cnt[num_buckets];
-  memset(cnt, 0, NUM_PARTITIONS);
+void phase3(int output_fd) {
+
+}
+
+size_t bucket(const key_t &key, const key_t *thresholds, size_t num_buckets) {
+  size_t bucket = 0;
+  while (bucket < num_buckets - 1) {
+    if (key < thresholds[bucket]) {
+      return bucket;
+    }
+    bucket++;
+  }
+  return num_buckets - 1;
+}
+
+void radix_sort(tuple_t *data, size_t sz, key_t *thresholds, size_t *buckets, size_t num_buckets) {
+  memset(buckets, 0, sizeof(size_t) * num_buckets);
+
+  for (size_t i = 0; i < sz; i++) {
+    buckets[bucket(*(key_t *) &data[i], thresholds, num_buckets)]++;
+  }
+  size_t sum = 0;
+  size_t heads[num_buckets];
+  size_t tails[num_buckets];
+  for (size_t i = 0; i < num_buckets; i++) {
+    heads[i] = sum;
+    sum += buckets[i];
+    tails[i] = sum;
+    printf("Bucket[%zu] %zu ~ %zu, contains %zu tuples.\n", i, heads[i], tails[i], buckets[i]);
+  }
+  printf("Total of %zu tuples processed.\n", sum);
 
   for (size_t i = 0; i < num_buckets; i++) {
+    while (heads[i] < tails[i]) {
+      tuple_t tuple = data[heads[i]];
+      while (bucket(*(key_t *) &tuple, thresholds, num_buckets) != i) {
+        swap(tuple, data[heads[bucket(*(key_t *) &tuple, thresholds, num_buckets)]++]);
+      }
+      data[heads[i]++] = tuple;
+    }
+  }
+
+  sum = 0;
+  for (size_t i = 0; i < num_buckets; i++) {
+    for (size_t j = 0; j < buckets[i] - 1; j++) {
+      if (bucket(*(key_t *) &data[sum + j], thresholds, num_buckets) != i) {
+        printf("Bucket[%zu] contains wrong data which should be in bucket %zu\n", i,
+               bucket(*(key_t *) &data[sum + j], thresholds, num_buckets));
+      }
+    }
+    sum += buckets[i];
+  }
+  printf("Radix sort SUCCESS!\n");
+}
+
+void output_tmp(int fd, const char *buffer, size_t sz, size_t head_offset) {
+  for (size_t offset = 0; offset < sz;) {
+    size_t ret = pwrite(fd, buffer, sz - offset, head_offset + offset);
+    offset += ret;
   }
 }
 
@@ -206,21 +263,6 @@ void parallel_sort(tuple_t *data, size_t sz) {
 //  sort(data, data + sz, [](const tuple_t &a, const tuple_t &b) {
 //    return memcmp(&a, &b, KEY_SIZE) < 0;
 //  });
-}
-
-void output_tmp(const char *filename, size_t round, const char *buffer, size_t sz) {
-  int fd;
-  if ((fd = open(filename, O_RDWR | O_CREAT | O_TRUNC, 0777)) == -1) {
-    printf("[Error] failed to open input file %s\n", filename);
-    return;
-  }
-
-  for (size_t offset = 0; offset < sz;) {
-    size_t ret = pwrite(fd, buffer, sz - offset, round * PHASE1_BUFFER_SIZE + offset);
-    offset += ret;
-  }
-
-  printf("File output done to %s (%zu bytes)\n", filename, sz);
 }
 
 // Sort in memory
