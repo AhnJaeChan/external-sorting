@@ -63,16 +63,15 @@ int main(int argc, char *argv[]) {
     filename += to_string(i) + ".data";
     fd = open(filename.c_str(), O_RDONLY);
     size_t fsz = lseek(fd, 0, SEEK_END);
-    tuple_key_t key;
-    pread(fd, &keys[0][i], KEY_SIZE, 0);
-    pread(fd, &keys[1][i], KEY_SIZE, fsz - KEY_SIZE);
+    pread(fd, &(keys[0][i]), KEY_SIZE, 0);
+    pread(fd, &(keys[1][i]), KEY_SIZE, fsz - KEY_SIZE);
   }
   for (size_t i = 1; i < NUM_PARTITIONS; i++) {
     if (keys[1][i - 1] > thresholds[i - 1]) {
-      printf("[%zu] Tail exceeds threshold\n", i - 1);
+      printf("[%zu] Tail larger than threshold\n", i - 1);
     }
     if (keys[0][i] < thresholds[i - 1]) {
-      printf("[%zu] Head exceeds threshold\n", i);
+      printf("[%zu] Head smaller than threshold\n", i);
     }
   }
 
