@@ -17,11 +17,9 @@ tuple_key_t *phase1(int input_fd);
 void phase2(int input_fd, tuple_key_t *thresholds);
 size_t bucket(const tuple_key &key, const tuple_key *thresholds, const size_t &num_buckets);
 void radix_sort(tuple_t *data, size_t sz, tuple_key_t *thresholds, size_t *buckets, size_t num_buckets);
-void phase3(int output_fd);
+void phase3(int output_fd, tuple_key_t *threshold);
 
 int main(int argc, char *argv[]) {
-//  ios_base::sync_with_stdio(false);
-
   if (argc < 3) {
     printf("Program usage: ./run input_file_name output_file_name\n");
     return 0;
@@ -54,7 +52,7 @@ int main(int argc, char *argv[]) {
   /// [Phase 2] END
 
   /// [Phase 3] START
-  phase3(output_fd);
+  phase3(output_fd, thresholds);
   /// [Phase 3] END
 
   tuple_key_t keys[NUM_PARTITIONS];
@@ -196,24 +194,16 @@ void phase2(int input_fd, tuple_key_t *thresholds) {
     tuple_t *data = (tuple_t *) input_buffer; // Need to use buffer as tuple type below, just a typecasting pointer
     radix_sort(data, read_amount / TUPLE_SIZE, thresholds, buckets, NUM_PARTITIONS);
 
-    size_t sum = 0;
-    for (size_t j = 0; j < NUM_PARTITIONS; j++) {
-      for (size_t k = 0; k < buckets[j]; k++) {
-        if (bucket(*(tuple_key_t *) &data[sum + k], thresholds, NUM_PARTITIONS) != j) {
-          printf("Bucket[%zu] contains wrong data which should be in bucket %zu\n", j,
-                 bucket(*(tuple_key_t *) &data[sum + k], thresholds, NUM_PARTITIONS));
-        }
-      }
-      sum += buckets[j];
-    }
-
+    size_t accumulated = 0;
     for (size_t j = 0; j < NUM_PARTITIONS; j++) {
       size_t sz = TUPLE_SIZE * buckets[j];
       for (size_t offset = 0; offset < sz;) {
-        size_t ret = pwrite(output_fds[j], input_buffer + offset, sz - offset, head_offsets[j] + offset);
+        size_t ret = pwrite(output_fds[j], input_buffer + offset + accumulated,
+                            sz - offset, head_offsets[j] + offset);
         offset += ret;
       }
       head_offsets[j] += sz;
+      accumulated += sz;
     }
   }
 
@@ -272,7 +262,7 @@ void radix_sort(tuple_t *data, size_t sz, tuple_key_t *thresholds, size_t *bucke
   printf("Radix sort SUCCESS!\n");
 }
 
-void phase3(int output_fd) {
+void phase3(int output_fd, tuple_key_t *threshold) {
   char *buffer;
   if ((buffer = (char *) malloc(sizeof(char) * PHASE3_BUFFER_SIZE)) == NULL) {
     printf("Buffer allocation failed (input read buffer)\n");
@@ -281,19 +271,20 @@ void phase3(int output_fd) {
 
   size_t head_offset = 0; // Offset on the last output file
   for (size_t i = 0; i < NUM_PARTITIONS; i++) {
-    int input_fd;
+    int fd;
     string filename(TMP_DIRECTORY);
     filename += to_string(i) + ".data";
-    if ((input_fd = open(filename.c_str(), O_RDONLY)) == -1) {
+    if ((fd = open(filename.c_str(), O_RDONLY)) == -1) {
       printf("tmp file open failure on phase 3\n");
       return;
     }
 
-    size_t file_size = lseek(input_fd, 0, SEEK_END);
+    size_t file_size = lseek(fd, 0, SEEK_END);
     for (size_t offset = 0; offset < file_size;) {
-      size_t ret = pread(input_fd, buffer + offset, file_size - offset, offset);
+      size_t ret = pread(fd, buffer + offset, file_size - offset, offset);
       offset += ret;
     }
+    close(fd);
 
     tuple_t *data = (tuple_t *) buffer;
     sort(data, data + (file_size / TUPLE_SIZE));
@@ -304,7 +295,6 @@ void phase3(int output_fd) {
       offset += ret;
     }
     head_offset += file_size;
-    close(input_fd);
   }
 
   printf("[Phase 3] final output file written (%zu bytes)\n", head_offset);
