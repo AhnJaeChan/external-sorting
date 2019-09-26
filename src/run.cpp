@@ -59,7 +59,8 @@ int main(int argc, char *argv[]) {
   tuple_key_t keys[2][NUM_PARTITIONS];
   for (size_t i = 0; i < NUM_PARTITIONS; i++) {
     int fd;
-    string filename = to_string(i) + ".data";
+    string filename(TMP_DIRECTORY);
+    filename += to_string(i) + ".data";
     fd = open(filename.c_str(), O_RDONLY);
     size_t fsz = lseek(fd, 0, SEEK_END);
     tuple_key_t key;
@@ -67,10 +68,6 @@ int main(int argc, char *argv[]) {
     pread(fd, &keys[1][i], KEY_SIZE, fsz - KEY_SIZE);
   }
   for (size_t i = 1; i < NUM_PARTITIONS; i++) {
-    if (keys[1][i - 1] > keys[0][i]) {
-      printf("Wrong joint!\n");
-    }
-
     if (keys[1][i - 1] > thresholds[i - 1]) {
       printf("[%zu] Tail exceeds threshold\n", i - 1);
     }
