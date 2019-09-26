@@ -9,9 +9,9 @@
 
 #define TUPLE_SIZE (100)
 #define KEY_SIZE (10)
-#define PHASE1_BUFFER_SIZE (300000000)  // 1000000000
+#define PHASE1_BUFFER_SIZE (200000000)  // 1000000000
 #define PHASE2_BUFFER_SIZE (500000000)  // 500Mb
-#define PHASE3_BUFFER_SIZE (1000000000) // 1Gb
+#define PHASE3_BUFFER_SIZE (500000000)  // 500Mb
 #define NUM_PARTITIONS (4) // Partitioning input data to N equal sized data
 
 #define TMP_DIRECTORY "./data/"
@@ -19,12 +19,12 @@
 typedef struct tuple {
   char data[100];
 
-  bool operator<(const tuple &a) const {
-    return memcmp(data, &a, KEY_SIZE) < 0;
+  bool operator<(const struct tuple &op) const {
+    return memcmp(data, &op, KEY_SIZE) < 0;
   }
 
-  bool operator>(const tuple &a) const {
-    return memcmp(data, &a, KEY_SIZE) > 0;
+  bool operator>(const struct tuple &op) const {
+    return memcmp(data, &op, KEY_SIZE) > 0;
   }
 } tuple_t;
 
@@ -37,6 +37,14 @@ typedef struct tuple_key {
 
   bool operator>(const struct tuple_key &op) const {
     return memcmp(key, &op, KEY_SIZE) > 0;
+  }
+
+  bool operator==(const struct tuple_key &op) const {
+    return memcmp(key, &op, KEY_SIZE) == 0;
+  }
+
+  bool operator!=(const struct tuple_key &op) const {
+    return memcmp(key, &op, KEY_SIZE) != 0;
   }
 } tuple_key_t;
 
