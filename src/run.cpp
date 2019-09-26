@@ -287,8 +287,8 @@ void phase3(int output_fd, tuple_key_t *threshold) {
     close(fd);
 
     tuple_t *data = (tuple_t *) buffer;
-    sort(data, data + (file_size / TUPLE_SIZE));
     printf("Sorting %zu tuples...\n", file_size / TUPLE_SIZE);
+    sort(data, data + (file_size / TUPLE_SIZE));
 
     for (size_t offset = 0; offset < file_size;) {
       size_t ret = pwrite(output_fd, buffer + offset, file_size - offset, head_offset + offset);
