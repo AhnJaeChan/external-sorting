@@ -192,13 +192,18 @@ void phase2(param_t &param) {
 
       size_t accumulated = 0;
       for (size_t j = 0; j < param.num_partitions; j++) {
+        size_t head;
         size_t sz = TUPLE_SIZE * buckets[j];
+        #pragma omp atomic capture
+        {
+          head = head_offsets[j];
+          head_offsets[j] += sz;
+        }
         for (size_t offset = 0; offset < sz;) {
           size_t ret = pwrite(output_fds[j], buffer + offset + accumulated,
-                              sz - offset, head_offsets[j] + offset);
+                              sz - offset, head + offset);
           offset += ret;
         }
-        head_offsets[j] += sz;
         accumulated += sz;
       }
     }
