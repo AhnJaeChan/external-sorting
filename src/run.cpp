@@ -165,7 +165,7 @@ void phase2(param_t &param) {
     }
   }
 
-  #pragma omp parallel num_threads(NUM_THREADS) shared(num_cycles, buffer_size, output_fds, head_offsets, param) default(none)
+  #pragma omp parallel num_threads(NUM_THREADS) shared(param, num_cycles, buffer_size, output_fds, head_offsets) default(none)
   {
     char *buffer;
     if ((buffer = (char *) malloc(buffer_size)) == NULL) {
@@ -184,7 +184,6 @@ void phase2(param_t &param) {
                            head_offset + offset);
         offset += ret;
       }
-      printf("Process file offset %zu ~ %zu\n", head_offset, head_offset + read_amount);
 
       size_t buckets[param.num_partitions];
       tuple_t *data = (tuple_t *) buffer; // Need to use buffer as tuple type below, just a typecasting pointer
@@ -240,9 +239,7 @@ void radix_sort(tuple_t *data, size_t sz, tuple_key_t *thresholds, size_t *bucke
     heads[i] = sum;
     sum += buckets[i];
     tails[i] = sum;
-//    printf("Bucket[%zu] %zu ~ %zu, contains %zu tuples.\n", i, heads[i], tails[i] - 1, buckets[i]);
   }
-//  printf("Total of %zu tuples processed.\n", sum);
 
   for (size_t i = 0; i < num_buckets; i++) {
     while (heads[i] < tails[i]) {
@@ -254,45 +251,57 @@ void radix_sort(tuple_t *data, size_t sz, tuple_key_t *thresholds, size_t *bucke
     }
   }
 
-//  printf("Radix sort SUCCESS!\n");
 }
 
 void phase3(param_t &param) {
-  char *buffer;
-  if ((buffer = (char *) malloc(sizeof(char) * (MAX_BUFFER / NUM_THREADS + 1000000))) == NULL) {
-    printf("Buffer allocation failed (input read buffer)\n");
-    return;
-  }
+  size_t buffer_size = sizeof(char) * (MAX_BUFFER / NUM_THREADS);
 
-  size_t head_offset = 0; // Offset on the last output file
+  int input_fds[param.num_partitions];
+  size_t file_sizes[param.num_partitions];
+  size_t head_offsets[param.num_partitions];
+  size_t sum = 0;
   for (size_t i = 0; i < param.num_partitions; i++) {
-    int fd;
+    head_offsets[i] = sum;
     string filename(TMP_DIRECTORY);
     filename += to_string(i) + ".data";
-    if ((fd = open(filename.c_str(), O_RDONLY)) == -1) {
-      printf("tmp file open failure on phase 3\n");
+    if ((input_fds[i] = open(filename.c_str(), O_RDONLY)) == -1) {
+      printf("tmp file open failure on phase 2\n");
       return;
     }
-
-    size_t file_size = lseek(fd, 0, SEEK_END);
-    for (size_t offset = 0; offset < file_size;) {
-      size_t ret = pread(fd, buffer + offset, file_size - offset, offset);
-      offset += ret;
-    }
-    close(fd);
-
-    tuple_t *data = (tuple_t *) buffer;
-    printf("Sorting %zu tuples...\n", file_size / TUPLE_SIZE);
-    sort(data, data + (file_size / TUPLE_SIZE));
-
-    for (size_t offset = 0; offset < file_size;) {
-      size_t ret = pwrite(param.output_fd, buffer + offset, file_size - offset, head_offset + offset);
-      offset += ret;
-    }
-    head_offset += file_size;
+    file_sizes[i] = lseek(input_fds[i], 0, SEEK_END);
+    sum += file_sizes[i];
   }
 
-  printf("[Phase 3] final output file written (%zu bytes)\n", head_offset);
+  #pragma omp parallel num_threads(NUM_THREADS) shared(param, buffer_size, input_fds, file_sizes, head_offsets) default(none)
+  {
+    char *buffer;
+    if ((buffer = (char *) malloc(buffer_size)) == NULL) {
+      printf("Buffer allocation failed (input read buffer)\n");
+      // TODO: exit program
+    }
 
-  free(buffer);
+    #pragma omp for
+    for (size_t i = 0; i < param.num_partitions; i++) {
+      for (size_t offset = 0; offset < file_sizes[i];) {
+        size_t ret = pread(input_fds[i], buffer + offset, file_sizes[i] - offset, offset);
+        offset += ret;
+      }
+
+      tuple_t *data = (tuple_t *) buffer;
+      sort(data, data + (file_sizes[i] / TUPLE_SIZE));
+
+      for (size_t offset = 0; offset < file_sizes[i];) {
+        size_t ret = pwrite(param.output_fd, buffer + offset, file_sizes[i] - offset, head_offsets[i] + offset);
+        offset += ret;
+      }
+    }
+
+    free(buffer);
+  }
+
+  for (size_t i = 0; i < param.num_partitions; i++) {
+    close(input_fds[i]);
+  }
+
+  printf("[Phase 3] final output file written (%zu bytes)\n", sum);
 }
