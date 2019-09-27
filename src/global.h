@@ -7,6 +7,10 @@
 
 #include <cstring>
 
+#define TOTAL_MEMORY (2000000000)
+#define MAX_BUFFER (1800000000)
+#define NUM_THREADS (40)
+
 #define TUPLE_SIZE (100)
 #define KEY_SIZE (10)
 #define PHASE1_BUFFER_SIZE (400000000)  // 1GB
@@ -14,7 +18,7 @@
 #define PHASE3_BUFFER_SIZE (500000000)  // 1GB
 #define NUM_PARTITIONS (10) // Partitioning input data to N equal sized data
 
-#define TMP_DIRECTORY "./data/"
+#define TMP_DIRECTORY ("./data/")
 
 typedef struct tuple {
   char data[100];

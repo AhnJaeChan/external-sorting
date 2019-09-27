@@ -87,6 +87,10 @@ int prepare_environment() {
       return -1;
     }
   }
+
+  // Create a thread pool of NUM_THREADS
+  omp_set_num_threads(NUM_THREADS);
+
   return 0;
 }
 
