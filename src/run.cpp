@@ -6,6 +6,7 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <sys/stat.h>
+#include <chrono>
 #include <omp.h>
 
 #include "global.h"
@@ -31,6 +32,8 @@ int main(int argc, char *argv[]) {
   }
 
   param_t param;
+  chrono::time_point<chrono::system_clock> t1, t2;
+  long long int duration;
 
   /// [Phase 1] START
   if ((param.input_fd = open(argv[1], O_RDONLY)) == -1) {
@@ -38,11 +41,21 @@ int main(int argc, char *argv[]) {
     return 0;
   }
 
+  t1 = chrono::high_resolution_clock::now();
   phase1(param);
+  t2 = chrono::high_resolution_clock::now();
+
+  duration = chrono::duration_cast<chrono::milliseconds>(t2 - t1).count();
+  cout << "[Phase1] took: " << duration << "(milliseconds)" << endl;
   /// [Phase 1] END
 
   /// [Phase 2] START
+  t1 = chrono::high_resolution_clock::now();
   phase2(param);
+  t2 = chrono::high_resolution_clock::now();
+
+  duration = chrono::duration_cast<chrono::milliseconds>(t2 - t1).count();
+  cout << "[Phase2] took: " << duration << "(milliseconds)" << endl;
   /// [Phase 2] END
 
   /// [Phase 3] START
@@ -50,7 +63,12 @@ int main(int argc, char *argv[]) {
     printf("[Error] failed to open input file %s\n", argv[2]);
     return 0;
   }
+  t1 = chrono::high_resolution_clock::now();
   phase3(param);
+  t2 = chrono::high_resolution_clock::now();
+
+  duration = chrono::duration_cast<chrono::milliseconds>(t2 - t1).count();
+  cout << "[Phase3] took: " << duration << "(milliseconds)" << endl;
   /// [Phase 3] END
 
   close(param.input_fd);
@@ -70,9 +88,7 @@ int prepare_environment() {
       return -1;
     }
   }
-
-  // Set thread pool
-  // omp_set_num_threads(NUM_THREADS);
+  omp_set_num_threads(NUM_THREADS);
 
   return 0;
 }
@@ -81,8 +97,13 @@ void phase1(param_t &param) {
   size_t file_size = lseek(param.input_fd, 0, SEEK_END);                  // Input file size
   size_t num_tuples = file_size / TUPLE_SIZE;                       // Number of tuples
   size_t num_cycles = (file_size - 1) / PHASE1_BUFFER_SIZE + 1;   // Total cycles run to process the input file
-  size_t num_partitions = (file_size - 1) / (MAX_BUFFER / NUM_THREADS) + 1; // Total partitions
-  printf("File size: %zu, Tuples existing: %zu, Num partitions: %zu\n", file_size, num_tuples, num_partitions);
+//  size_t num_partitions = (file_size - 1) / (MAX_BUFFER / NUM_THREADS) + 1; // Total partitions
+  size_t num_partitions;
+  if (file_size > MAX_BUFFER) {
+    num_partitions = (file_size - 1) / (MAX_BUFFER / NUM_THREADS) + 1;
+  } else {
+    num_partitions = NUM_THREADS;
+  }
 
   // Buffer for reading N bytes from file at once (N = READ_BUFFER_SIZE)
   char *input_buffer;
@@ -109,7 +130,6 @@ void phase1(param_t &param) {
                          head_offset + offset);
       offset += ret;
     }
-    printf("Read file offset %zu ~ %zu\n", head_offset, head_offset + read_amount);
     head_offset += read_amount;
 
     tuple_t *data = (tuple_t *) input_buffer; // Need to use buffer as tuple type below, just a typecasting pointer
@@ -119,12 +139,9 @@ void phase1(param_t &param) {
     }
     key_offset += (read_amount / TUPLE_SIZE);
   }
-  printf("Key array generated: %zu\n", key_offset);
 
   // Sort the key list, ascending order
   sort(keys, keys + num_tuples);
-
-  printf("Total partitions: %zu\n", num_partitions);
 
   // Need $(num_partitions - 1) keys to separate the whole input into $num_partitions parts.
   // They will be used as following (ex. num_partitions = 4)
@@ -215,7 +232,6 @@ void phase2(param_t &param) {
     sum += head_offsets[i];
     close(output_fds[i]);
   }
-  printf("[Phase 2] %zu tmp files written, total of %zu bytes\n", param.num_partitions, sum);
 }
 
 size_t bucket(const tuple_key_t &key, const tuple_key_t *thresholds, const size_t &num_thresholds) {
@@ -302,6 +318,4 @@ void phase3(param_t &param) {
   for (size_t i = 0; i < param.num_partitions; i++) {
     close(input_fds[i]);
   }
-
-  printf("[Phase 3] final output file written (%zu bytes)\n", sum);
 }
