@@ -1,6 +1,6 @@
 # Compiler and Compile options.
 CC = g++ 
-CXXFLAGS = -g -Wall -std=c++11 -O2
+CXXFLAGS = -g -Wall -std=c++11 -O2 -fopenmp
 
 # Macros specifying path for compile.
 SRCS := $(wildcard src/*.cpp)
