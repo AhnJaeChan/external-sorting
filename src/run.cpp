@@ -13,11 +13,11 @@ using namespace std;
 
 int prepare_environment();
 
-tuple_key_t *phase1(int input_fd);
-void phase2(int input_fd, tuple_key_t *thresholds);
-size_t bucket(const tuple_key &key, const tuple_key *thresholds, const size_t &num_buckets);
+void phase1(param_t &param);
+void phase2(param_t &param);
+size_t bucket(const tuple_key &key, const tuple_key *thresholds, const size_t &num_thresholds);
 void radix_sort(tuple_t *data, size_t sz, tuple_key_t *thresholds, size_t *buckets, size_t num_buckets);
-void phase3(int output_fd, tuple_key_t *threshold);
+void phase3(param_t &param);
 
 int main(int argc, char *argv[]) {
   if (argc < 3) {
@@ -29,51 +29,33 @@ int main(int argc, char *argv[]) {
     printf("[Error] directory cannot be made\n");
   }
 
+  param_t param;
+
   /// [Phase 1] START
-  int input_fd;
-  if ((input_fd = open(argv[1], O_RDONLY)) == -1) {
+  if ((param.input_fd = open(argv[1], O_RDONLY)) == -1) {
     printf("[Error] failed to open input file %s\n", argv[1]);
     return 0;
   }
 
-  tuple_key *thresholds = phase1(input_fd);
+  phase1(param);
   /// [Phase 1] END
 
   /// [Phase 2] START
-  phase2(input_fd, thresholds);
-  /// [Phase 2] END
-
-  /// [Phase 2] START
-  int output_fd;
-  if ((output_fd = open(argv[2], O_RDWR | O_CREAT | O_TRUNC, 0777)) == -1) {
-    printf("[Error] failed to open input file %s\n", argv[2]);
-    return 0;
-  }
+  phase2(param);
   /// [Phase 2] END
 
   /// [Phase 3] START
-  phase3(output_fd, thresholds);
+  if ((param.output_fd = open(argv[2], O_RDWR | O_CREAT | O_TRUNC, 0777)) == -1) {
+    printf("[Error] failed to open input file %s\n", argv[2]);
+    return 0;
+  }
+  phase3(param);
   /// [Phase 3] END
 
-  tuple_key_t keys[NUM_PARTITIONS];
-  for (size_t i = 0; i < NUM_PARTITIONS; i++) {
-    int fd;
-    string filename(TMP_DIRECTORY);
-    filename += to_string(i) + ".data";
-    fd = open(filename.c_str(), O_RDONLY);
-    pread(fd, &keys[i], KEY_SIZE, 0);
-    close(fd);
-  }
-  for (size_t i = 1; i < NUM_PARTITIONS; i++) {
-    if (keys[i] < thresholds[i - 1]) {
-      printf("[%zu] Head doesn't match threshold %d\n", i, memcmp(&keys[i], &thresholds[i - 1], KEY_SIZE));
-    }
-  }
+  close(param.input_fd);
+  close(param.output_fd);
 
-  close(input_fd);
-  close(output_fd);
-
-  free(thresholds);
+  free(param.thresholds);
 
   return 0;
 }
@@ -87,30 +69,27 @@ int prepare_environment() {
       return -1;
     }
   }
-
-  // Create a thread pool of NUM_THREADS
-  omp_set_num_threads(NUM_THREADS);
-
   return 0;
 }
 
-tuple_key *phase1(int input_fd) {
-  size_t file_size = lseek(input_fd, 0, SEEK_END);                  // Input file size
+void phase1(param_t &param) {
+  size_t file_size = lseek(param.input_fd, 0, SEEK_END);                  // Input file size
   size_t num_tuples = file_size / TUPLE_SIZE;                       // Number of tuples
   size_t num_cycles = (file_size - 1) / PHASE1_BUFFER_SIZE + 1;   // Total cycles run to process the input file
-  printf("File size: %zu, Tuples existing: %zu, Num partitions: %zu\n", file_size, num_tuples, num_cycles);
+  size_t num_partitions = (file_size - 1) / (MAX_BUFFER / NUM_THREADS) + 1; // Total partitions
+  printf("File size: %zu, Tuples existing: %zu, Num partitions: %zu\n", file_size, num_tuples, num_partitions);
 
   // Buffer for reading N bytes from file at once (N = READ_BUFFER_SIZE)
   char *input_buffer;
   if ((input_buffer = (char *) malloc(sizeof(char) * PHASE1_BUFFER_SIZE)) == NULL) {
     printf("Buffer allocation failed (input read buffer)\n");
-    return NULL;
+    return;
   }
 
   tuple_key_t *keys;
   if ((keys = (tuple_key_t *) malloc(sizeof(tuple_key_t) * num_tuples)) == NULL) {
     printf("Buffer allocation failed (key buffer)\n");
-    return NULL;
+    return;
   }
 
   // For each cycle, we must only extract the keys
@@ -121,7 +100,7 @@ tuple_key *phase1(int input_fd) {
                          (file_size - 1) % PHASE1_BUFFER_SIZE + 1; // The last part will have remainders
 
     for (size_t offset = 0; offset < read_amount;) {
-      size_t ret = pread(input_fd, input_buffer + offset, head_offset + read_amount - offset,
+      size_t ret = pread(param.input_fd, input_buffer + offset, head_offset + read_amount - offset,
                          head_offset + offset);
       offset += ret;
     }
@@ -140,27 +119,34 @@ tuple_key *phase1(int input_fd) {
   // Sort the key list, ascending order
   sort(keys, keys + num_tuples);
 
+  printf("Total partitions: %zu\n", num_partitions);
+
   // Need $(num_partitions - 1) keys to separate the whole input into $num_partitions parts.
   // They will be used as following (ex. num_partitions = 4)
   // if (key < threshold[0]): put to file 0,
   // else if (key < threshold[1]): put to file 1,
   // else if (key < threshold[2]): put to file 2,
   // else: put to file 3
-  tuple_key_t *thresholds = (tuple_key_t *) malloc(sizeof(tuple_key_t) * (NUM_PARTITIONS - 1));
-  for (size_t i = 1; i < NUM_PARTITIONS; i++) {
-    printf("Threshold %zu = %zu\n", i - 1, num_tuples / NUM_PARTITIONS * i);
-    memcpy(&thresholds[i - 1], &keys[num_tuples / NUM_PARTITIONS * i], KEY_SIZE);
+  tuple_key_t *thresholds = (tuple_key_t *) malloc(sizeof(tuple_key_t) * (num_partitions - 1));
+  size_t num_partition_tuples = num_tuples / num_partitions; // Tuples per partition
+  for (size_t i = 1; i < num_partitions; i++) {
+    printf("Threshold %zu = %zu\n", i - 1, num_partition_tuples * i);
+    memcpy(&thresholds[i - 1], &keys[num_partition_tuples * i], KEY_SIZE);
   }
+
+  param.total_file_size = file_size;
+  param.num_partitions = num_partitions;
+  param.num_tuples = num_tuples;
+  param.num_thresholds = num_partitions - 1;
+  param.thresholds = thresholds;
 
   free(keys);
   free(input_buffer);
-
-  return thresholds;
 }
 
-void phase2(int input_fd, tuple_key_t *thresholds) {
-  size_t file_size = lseek(input_fd, 0, SEEK_END);              // Input file size
-  size_t num_cycles = (file_size - 1) / PHASE2_BUFFER_SIZE + 1; // Total cycles run to process the input file
+void phase2(param_t &param) {
+  size_t num_cycles =
+      (param.total_file_size - 1) / PHASE2_BUFFER_SIZE + 1; // Total cycles run to process the input file
 
   // Buffer for reading N bytes from file at once (N = READ_BUFFER_SIZE)
   char *input_buffer;
@@ -169,9 +155,9 @@ void phase2(int input_fd, tuple_key_t *thresholds) {
     return;
   }
 
-  int output_fds[NUM_PARTITIONS];
-  size_t head_offsets[NUM_PARTITIONS];
-  for (size_t i = 0; i < NUM_PARTITIONS; i++) {
+  int output_fds[param.num_partitions];
+  size_t head_offsets[param.num_partitions];
+  for (size_t i = 0; i < param.num_partitions; i++) {
     head_offsets[i] = 0;
     string filename(TMP_DIRECTORY);
     filename += to_string(i) + ".data";
@@ -184,22 +170,22 @@ void phase2(int input_fd, tuple_key_t *thresholds) {
   for (size_t i = 0; i < num_cycles; i++) {
     size_t head_offset = PHASE2_BUFFER_SIZE * i;
     size_t read_amount = i != num_cycles - 1 ? PHASE2_BUFFER_SIZE :
-                         (file_size - 1) % PHASE2_BUFFER_SIZE + 1; // The last part will have remainders
+                         (param.total_file_size - 1) % PHASE2_BUFFER_SIZE + 1; // The last part will have remainders
 
     for (size_t offset = 0; offset < read_amount;) {
-      size_t ret = pread(input_fd, input_buffer + offset, read_amount - offset,
+      size_t ret = pread(param.input_fd, input_buffer + offset, read_amount - offset,
                          head_offset + offset);
       offset += ret;
     }
 
-    printf("Read file offset %zu ~ %zu\n", head_offset, head_offset + read_amount);
+    printf("Process file offset %zu ~ %zu\n", head_offset, head_offset + read_amount);
 
-    size_t buckets[NUM_PARTITIONS];
+    size_t buckets[param.num_partitions];
     tuple_t *data = (tuple_t *) input_buffer; // Need to use buffer as tuple type below, just a typecasting pointer
-    radix_sort(data, read_amount / TUPLE_SIZE, thresholds, buckets, NUM_PARTITIONS);
+    radix_sort(data, read_amount / TUPLE_SIZE, param.thresholds, buckets, param.num_partitions);
 
     size_t accumulated = 0;
-    for (size_t j = 0; j < NUM_PARTITIONS; j++) {
+    for (size_t j = 0; j < param.num_partitions; j++) {
       size_t sz = TUPLE_SIZE * buckets[j];
       for (size_t offset = 0; offset < sz;) {
         size_t ret = pwrite(output_fds[j], input_buffer + offset + accumulated,
@@ -212,33 +198,35 @@ void phase2(int input_fd, tuple_key_t *thresholds) {
   }
 
   size_t sum = 0;
-  for (int i = 0; i < NUM_PARTITIONS; i++) {
+  for (size_t i = 0; i < param.num_partitions; i++) {
     sum += head_offsets[i];
     close(output_fds[i]);
   }
-  printf("[Phase 2] %zu tmp files written, total of %zu bytes\n", NUM_PARTITIONS, sum);
+  printf("[Phase 2] %zu tmp files written, total of %zu bytes\n", param.num_partitions, sum);
 
   free(input_buffer);
 }
 
-size_t bucket(const tuple_key &key, const tuple_key *thresholds, const size_t &num_buckets) {
+// TODO: change to binary search
+size_t bucket(const tuple_key_t &key, const tuple_key_t *thresholds, const size_t &num_thresholds) {
   size_t bucket = 0;
-  while (bucket < num_buckets - 1) {
+  while (bucket < num_thresholds) {
     if (key < thresholds[bucket]) {
       return bucket;
     }
     bucket++;
   }
-  return num_buckets - 1;
+  return num_thresholds;
 }
 
 void radix_sort(tuple_t *data, size_t sz, tuple_key_t *thresholds, size_t *buckets, size_t num_buckets) {
+  size_t num_thresholds = num_buckets - 1;
   for (size_t i = 0; i < num_buckets; i++) {
     buckets[i] = 0;
   }
 
   for (size_t i = 0; i < sz; i++) {
-    buckets[bucket(*(tuple_key_t *) &data[i], thresholds, num_buckets)]++;
+    buckets[bucket(*(tuple_key_t *) &data[i], thresholds, num_thresholds)]++;
   }
 
   size_t sum = 0;
@@ -248,33 +236,33 @@ void radix_sort(tuple_t *data, size_t sz, tuple_key_t *thresholds, size_t *bucke
     heads[i] = sum;
     sum += buckets[i];
     tails[i] = sum;
-    printf("Bucket[%zu] %zu ~ %zu, contains %zu tuples.\n", i, heads[i], tails[i] - 1, buckets[i]);
+//    printf("Bucket[%zu] %zu ~ %zu, contains %zu tuples.\n", i, heads[i], tails[i] - 1, buckets[i]);
   }
-  printf("Total of %zu tuples processed.\n", sum);
+//  printf("Total of %zu tuples processed.\n", sum);
 
   for (size_t i = 0; i < num_buckets; i++) {
     while (heads[i] < tails[i]) {
       tuple_t &tuple = data[heads[i]];
-      while (bucket(*(tuple_key_t *) &tuple, thresholds, num_buckets) != i) {
-        swap(tuple, data[heads[bucket(*(tuple_key_t *) &tuple, thresholds, num_buckets)]++]);
+      while (bucket(*(tuple_key_t *) &tuple, thresholds, num_thresholds) != i) {
+        swap(tuple, data[heads[bucket(*(tuple_key_t *) &tuple, thresholds, num_thresholds)]++]);
       }
       heads[i]++;
 //      data[heads[i]++] = tuple;
     }
   }
 
-  printf("Radix sort SUCCESS!\n");
+//  printf("Radix sort SUCCESS!\n");
 }
 
-void phase3(int output_fd, tuple_key_t *threshold) {
+void phase3(param_t &param) {
   char *buffer;
-  if ((buffer = (char *) malloc(sizeof(char) * PHASE3_BUFFER_SIZE)) == NULL) {
+  if ((buffer = (char *) malloc(sizeof(char) * (MAX_BUFFER / NUM_THREADS + 1000000))) == NULL) {
     printf("Buffer allocation failed (input read buffer)\n");
     return;
   }
 
   size_t head_offset = 0; // Offset on the last output file
-  for (size_t i = 0; i < NUM_PARTITIONS; i++) {
+  for (size_t i = 0; i < param.num_partitions; i++) {
     int fd;
     string filename(TMP_DIRECTORY);
     filename += to_string(i) + ".data";
@@ -295,7 +283,7 @@ void phase3(int output_fd, tuple_key_t *threshold) {
     sort(data, data + (file_size / TUPLE_SIZE));
 
     for (size_t offset = 0; offset < file_size;) {
-      size_t ret = pwrite(output_fd, buffer + offset, file_size - offset, head_offset + offset);
+      size_t ret = pwrite(param.output_fd, buffer + offset, file_size - offset, head_offset + offset);
       offset += ret;
     }
     head_offset += file_size;

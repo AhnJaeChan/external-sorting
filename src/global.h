@@ -14,7 +14,7 @@
 #define TUPLE_SIZE (100)
 #define KEY_SIZE (10)
 #define PHASE1_BUFFER_SIZE (400000000)  // 1GB
-#define PHASE2_BUFFER_SIZE (500000000)  // 500MB
+#define PHASE2_BUFFER_SIZE (128000000)  // 500MB
 #define PHASE3_BUFFER_SIZE (500000000)  // 1GB
 #define NUM_PARTITIONS (10) // Partitioning input data to N equal sized data
 
@@ -51,5 +51,15 @@ typedef struct tuple_key {
     return memcmp(key, &op, KEY_SIZE) != 0;
   }
 } tuple_key_t;
+
+typedef struct param {
+  int input_fd;
+  int output_fd;
+  size_t total_file_size;
+  size_t num_partitions;
+  size_t num_tuples;
+  tuple_key_t *thresholds;
+  size_t num_thresholds;
+} param_t;
 
 #endif //MULTICORE_EXTERNAL_SORT_GLOBAL_H
