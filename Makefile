@@ -8,7 +8,7 @@ OBJS := $(SRCS:.cpp=.o)
 DEPS := $(wildcard *.h)
 
 # Compile command.
-TARGET = run
+TARGET = test
 $(TARGET): $(OBJS)
 	$(CC) $(CXXFLAGS) -o $(TARGET) $(OBJS)
 $(TARGET).o: $(DEPS)

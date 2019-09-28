@@ -21,63 +21,63 @@ size_t bucket(const tuple_key &key, const tuple_key *thresholds, const size_t &n
 void radix_sort(tuple_t *data, size_t sz, tuple_key_t *thresholds, size_t *buckets, size_t num_buckets);
 void phase3(param_t &param);
 
-int main(int argc, char *argv[]) {
-  if (argc < 3) {
-    printf("Program usage: ./run input_file_name output_file_name\n");
-    return 0;
-  }
-
-  if (prepare_environment() == -1) {
-    printf("[Error] directory cannot be made\n");
-  }
-
-  param_t param;
-  chrono::time_point<chrono::system_clock> t1, t2;
-  long long int duration;
-
-  /// [Phase 1] START
-  if ((param.input_fd = open(argv[1], O_RDONLY)) == -1) {
-    printf("[Error] failed to open input file %s\n", argv[1]);
-    return 0;
-  }
-
-  t1 = chrono::high_resolution_clock::now();
-  phase1(param);
-  t2 = chrono::high_resolution_clock::now();
-
-  duration = chrono::duration_cast<chrono::milliseconds>(t2 - t1).count();
-  cout << "[Phase1] took: " << duration << "(milliseconds)" << endl;
-  /// [Phase 1] END
-
-  /// [Phase 2] START
-  t1 = chrono::high_resolution_clock::now();
-  phase2(param);
-  t2 = chrono::high_resolution_clock::now();
-
-  duration = chrono::duration_cast<chrono::milliseconds>(t2 - t1).count();
-  cout << "[Phase2] took: " << duration << "(milliseconds)" << endl;
-  /// [Phase 2] END
-
-  /// [Phase 3] START
-  if ((param.output_fd = open(argv[2], O_RDWR | O_CREAT | O_TRUNC, 0777)) == -1) {
-    printf("[Error] failed to open input file %s\n", argv[2]);
-    return 0;
-  }
-  t1 = chrono::high_resolution_clock::now();
-  phase3(param);
-  t2 = chrono::high_resolution_clock::now();
-
-  duration = chrono::duration_cast<chrono::milliseconds>(t2 - t1).count();
-  cout << "[Phase3] took: " << duration << "(milliseconds)" << endl;
-  /// [Phase 3] END
-
-  close(param.input_fd);
-  close(param.output_fd);
-
-  free(param.thresholds);
-
-  return 0;
-}
+//int main(int argc, char *argv[]) {
+//  if (argc < 3) {
+//    printf("Program usage: ./run input_file_name output_file_name\n");
+//    return 0;
+//  }
+//
+//  if (prepare_environment() == -1) {
+//    printf("[Error] directory cannot be made\n");
+//  }
+//
+//  param_t param;
+//  chrono::time_point<chrono::system_clock> t1, t2;
+//  long long int duration;
+//
+//  /// [Phase 1] START
+//  if ((param.input_fd = open(argv[1], O_RDONLY)) == -1) {
+//    printf("[Error] failed to open input file %s\n", argv[1]);
+//    return 0;
+//  }
+//
+//  t1 = chrono::high_resolution_clock::now();
+//  phase1(param);
+//  t2 = chrono::high_resolution_clock::now();
+//
+//  duration = chrono::duration_cast<chrono::milliseconds>(t2 - t1).count();
+//  cout << "[Phase1] took: " << duration << "(milliseconds)" << endl;
+//  /// [Phase 1] END
+//
+//  /// [Phase 2] START
+//  t1 = chrono::high_resolution_clock::now();
+//  phase2(param);
+//  t2 = chrono::high_resolution_clock::now();
+//
+//  duration = chrono::duration_cast<chrono::milliseconds>(t2 - t1).count();
+//  cout << "[Phase2] took: " << duration << "(milliseconds)" << endl;
+//  /// [Phase 2] END
+//
+//  /// [Phase 3] START
+//  if ((param.output_fd = open(argv[2], O_RDWR | O_CREAT | O_TRUNC, 0777)) == -1) {
+//    printf("[Error] failed to open input file %s\n", argv[2]);
+//    return 0;
+//  }
+//  t1 = chrono::high_resolution_clock::now();
+//  phase3(param);
+//  t2 = chrono::high_resolution_clock::now();
+//
+//  duration = chrono::duration_cast<chrono::milliseconds>(t2 - t1).count();
+//  cout << "[Phase3] took: " << duration << "(milliseconds)" << endl;
+//  /// [Phase 3] END
+//
+//  close(param.input_fd);
+//  close(param.output_fd);
+//
+//  free(param.thresholds);
+//
+//  return 0;
+//}
 
 int prepare_environment() {
   if (mkdir(TMP_DIRECTORY, S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH) == -1) {
