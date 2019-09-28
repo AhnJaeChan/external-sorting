@@ -31,23 +31,6 @@ int main() {
     memcpy(keys + i, buffer + TUPLE_SIZE * i, KEY_SIZE);
   }
 
-/*  int a[] = {1, 2, 3, 4};
-  int &v = a[1];
-
-  cout << "Pointer to a[1]: " << &a[1] << endl;
-  cout << "Value of a[1]: " << a[1] << endl;
-  cout << "Pointer to a[2]: " << &a[2] << endl;
-  cout << "Pointer to a[2]: " << a[2] << endl;
-  cout << "Value of v: " << v << endl;
-  swap(v, a[2]);
-  cout << "Pointer to a[1]: " << &a[1] << endl;
-  cout << "Value of a[1]: " << a[1] << endl;
-  cout << "Pointer to a[2]: " << &a[2] << endl;
-  cout << "Pointer to a[2]: " << a[2] << endl;
-  cout << "Value of v: " << v << endl;
-
-  return 0;*/
-
   chrono::time_point<chrono::system_clock> t1, t2;
   long long int duration;
   t1 = chrono::high_resolution_clock::now();

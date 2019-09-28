@@ -48,71 +48,63 @@ void parallel_radix_sort(tuple_key_t *data, const size_t &sz, const size_t &leve
     g[i].tail = sum;
   }
 
-//  while (sum > 0) {
-  // Partition For Permutation
-  for (size_t bucket_id = 0; bucket_id < NUM_BUCKETS; bucket_id++) {
-    size_t total = g[bucket_id].tail - g[bucket_id].head;
-
-    if (total == 0) continue;
-
-    size_t needed_threads = num_threads;
-    size_t chunk_size = (total - 1) / num_threads + 1;
-
-    if (total < num_threads) {
-      needed_threads = total % num_threads;
-      chunk_size = 1;
-    }
-
-    for (size_t thread_id = 0; thread_id < needed_threads; thread_id++) {
-      p[bucket_id][thread_id].head = g[bucket_id].head + chunk_size * thread_id;
-      p[bucket_id][thread_id].tail = p[bucket_id][thread_id].head + chunk_size;
-    }
-
-    if (num_threads - needed_threads > 0) {
-      memset(&p[bucket_id][needed_threads], g[bucket_id].tail, sizeof(section_t) * (num_threads - needed_threads));
-    }
-    p[bucket_id][needed_threads - 1].tail = g[bucket_id].tail;
-  }
-
-  #pragma omp parallel shared(data, level, num_threads, p) default(none)
-  {
-    #pragma omp for
-    for (size_t thread_id = 0; thread_id < num_threads; thread_id++) {
-      permute(data, level, (section_t **) p, thread_id);
-    }
-  }
-
-  // Synchronization
-
-  #pragma omp parallel shared(data, level, num_threads, g, p) default(none)
-  {
-    #pragma omp for
+  while (sum > 0) {
+    // Partition For Permutation
     for (size_t bucket_id = 0; bucket_id < NUM_BUCKETS; bucket_id++) {
-      repair(data, level, g, (section_t **) p, bucket_id, num_threads);
+      size_t total = g[bucket_id].tail - g[bucket_id].head;
+
+      if (total == 0) continue;
+
+      size_t needed_threads = num_threads;
+      size_t chunk_size = (total - 1) / num_threads + 1;
+
+      if (total < num_threads) {
+        needed_threads = total % num_threads;
+        chunk_size = 1;
+      }
+
+      for (size_t thread_id = 0; thread_id < needed_threads; thread_id++) {
+        p[bucket_id][thread_id].head = g[bucket_id].head + chunk_size * thread_id;
+        p[bucket_id][thread_id].tail = p[bucket_id][thread_id].head + chunk_size;
+      }
+
+      if (num_threads - needed_threads > 0) {
+        memset(&p[bucket_id][needed_threads], g[bucket_id].tail, sizeof(section_t) * (num_threads - needed_threads));
+      }
+      p[bucket_id][needed_threads - 1].tail = g[bucket_id].tail;
+    }
+
+    #pragma omp parallel shared(data, level, num_threads, p) default(none)
+    {
+      #pragma omp for
+      for (size_t thread_id = 0; thread_id < num_threads; thread_id++) {
+        permute(data, level, (section_t **) p, thread_id);
+      }
+    }
+
+    // Synchronization
+
+    #pragma omp parallel shared(data, level, num_threads, g, p) default(none)
+    {
+      #pragma omp for
+      for (size_t bucket_id = 0; bucket_id < NUM_BUCKETS; bucket_id++) {
+        repair(data, level, g, (section_t **) p, bucket_id, num_threads);
+      }
+    }
+
+    // Synchronization
+
+    sum = 0;
+    for (size_t i = 0; i < NUM_BUCKETS; i++) {
+      sum += g[i].tail - g[i].head;
     }
   }
-
-  printf("%zu, %zu\n", g[0].head, g[0].tail);
-  for (size_t i = 0; i < g[0].head; i++) {
-    if (bucket(data[i], level) != 0) {
-      printf("Wrong bucket after repair!\n");
-    }
-  }
-
-  // Synchronization
-
-  sum = 0;
-  for (size_t i = 0; i < NUM_BUCKETS; i++) {
-    sum += g[i].tail - g[i].head;
-  }
-//  }
 
   sum = 0;
   size_t cnt = 0;
   for (size_t i = 0; i < NUM_BUCKETS; i++) {
     for (size_t j = 0; j < buckets[i]; j++) {
       if (bucket(data[sum + j], level) != i) {
-//        printf("bucket[%zu]: %zu'th tuple in wrong bucket\n", i, j);
         cnt++;
       }
     }
@@ -144,11 +136,8 @@ void permute(tuple_key_t *data, const size_t &level, section_t **p, const size_t
       if (k == bucket_id) {
         head++;
         p[bucket_id][thread_id].head++;
-//        data[head++] = data[p[bucket_id][thread_id].head];
-//        data[p[bucket_id][thread_id].head++] = v;
       } else {
         head++;
-//        data[head++] = v;
       }
     }
   }
@@ -165,8 +154,6 @@ void repair(tuple_key_t *data, const size_t &level, section_t *g, section_t **p,
         while (head < tail) {
           tuple_key_t &w = data[--tail];
           if (bucket(w, level) == bucket_id) {
-//            data[head - 1] = w;
-//            data[tail] = v;
             std::swap(v, w);
             break;
           }
