@@ -92,12 +92,12 @@ void parallel_radix_sort(tuple_key_t *data, size_t sz, size_t level, size_t num_
   }
 
   // Check divide permutation
-//  for (size_t i = 0; i < NUM_BUCKETS; i++) {
-//    printf("Bucket[%zu]: %zu ~ %zu\n", i, g[i].head, g[i].tail);
+  for (size_t i = 0; i < NUM_BUCKETS; i++) {
+    printf("Bucket[%zu]: %zu ~ %zu\n", i, g[i].head, g[i].tail);
 //    for (size_t j = 0; j < num_threads; j++) {
 //      printf("\tthread[%zu]: %zu ~ %zu\n", j, p[i][j].head, p[i][j].tail);
 //    }
-//  }
+  }
 
   #pragma omp parallel shared(data, level, num_threads, p) default(none)
   {
@@ -107,22 +107,22 @@ void parallel_radix_sort(tuple_key_t *data, size_t sz, size_t level, size_t num_
     }
   }
 
-  printf("\n\n@@@ AFTER PERMUTATION @@@\n\n");
-
-  // Check after permutation
-  for (size_t i = 0; i < NUM_BUCKETS; i++) {
-    printf("Bucket[%zu]: %zu ~ %zu\n", i, g[i].head, g[i].tail);
-    size_t head = g[i].head;
-    for (size_t j = 0; j < num_threads; j++) {
-      printf("\tthread[%zu]: %zu ~ %zu\n", j, p[i][j].head, p[i][j].tail);
-      for (size_t k = head; k < p[i][j].head; k++) {
-        if (bucket(data[k], level) != i) {
-          printf("\t\t[%zu] Wrong element\n", k);
-        }
-      }
-      head = p[i][j].tail;
-    }
-  }
+//  printf("\n\n@@@ AFTER PERMUTATION @@@\n\n");
+//
+//  // Check after permutation
+//  for (size_t i = 0; i < NUM_BUCKETS; i++) {
+//    printf("Bucket[%zu]: %zu ~ %zu\n", i, g[i].head, g[i].tail);
+//    size_t head = g[i].head;
+//    for (size_t j = 0; j < num_threads; j++) {
+//      printf("\tthread[%zu]: %zu ~ %zu\n", j, p[i][j].head, p[i][j].tail);
+//      for (size_t k = head; k < p[i][j].head; k++) {
+//        if (bucket(data[k], level) != i) {
+//          printf("\t\t[%zu] Wrong element\n", k);
+//        }
+//      }
+//      head = p[i][j].tail;
+//    }
+//  }
 
   // Synchronization
 
