@@ -200,13 +200,9 @@ void permute(tuple_key_t *data, const size_t &level, section_t *p[NUM_BUCKETS], 
         std::swap(v, data[p[k][thread_id].head++]);
         k = bucket(v, level);
       }
-//      head++;
+      head++;
       if (k == bucket_id) {
-//        p[bucket_id][thread_id].head++;
-        data[head++] = data[p[bucket_id][thread_id].head];
-        data[p[bucket_id][thread_id].head++] = v;
-      } else {
-        data[head++] = v;
+        p[bucket_id][thread_id].head++;
       }
     }
   }
