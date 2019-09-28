@@ -57,7 +57,8 @@ void parallel_radix_sort(tuple_key_t *data, size_t sz, size_t level, size_t num_
     g[i].tail = sum;
   }
 
-  while (sum > 0) {
+  size_t last_none_empty = 0;
+  while (g[last_none_empty].tail - g[last_none_empty].head > 0) {
     // Partition For Permutation
     for (size_t bucket_id = 0; bucket_id < NUM_BUCKETS; bucket_id++) {
       size_t total = g[bucket_id].tail - g[bucket_id].head;
@@ -108,25 +109,13 @@ void parallel_radix_sort(tuple_key_t *data, size_t sz, size_t level, size_t num_
 
     // Synchronization
 
-    sum = 0;
-    for (size_t i = 0; i < NUM_BUCKETS; i++) {
-      sum += g[i].tail - g[i].head;
-    }
-  }
-
-  sum = 0;
-  size_t cnt = 0;
-  for (size_t i = 0; i < NUM_BUCKETS; i++) {
-//    printf("bucket[%zu]\n", i);
-    for (size_t j = 0; j < buckets[i]; j++) {
-      if (bucket(data[sum + j], level) != i) {
-//        printf("\titem [%zu], %zu\n", j, bucket(data[sum + j], level));
-        cnt++;
+    for (size_t i = last_none_empty; i < NUM_BUCKETS; i++) {
+      if (g[i].tail - g[i].head != 0) {
+        last_none_empty = i;
+        break;
       }
     }
-    sum += buckets[i];
   }
-  printf("[Level %zu] %zu items in wrong bucket\n", level, cnt);
 
   for (size_t i = 0; i < NUM_BUCKETS; i++) {
     free(p[i]);
