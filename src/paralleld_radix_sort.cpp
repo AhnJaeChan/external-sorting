@@ -10,7 +10,12 @@
 #include <omp.h>
 
 
-void parallel_radix_sort(tuple_key_t *data, const size_t &sz, const size_t &level, size_t num_threads) {
+void parallel_radix_sort(tuple_key_t *data, size_t sz, size_t level, size_t num_threads) {
+  if (sz <= 64) {
+    std::sort(data, data + sz);
+    return;
+  }
+
   size_t buckets[NUM_BUCKETS];
   memset(buckets, 0, sizeof(size_t) * NUM_BUCKETS);
 
@@ -110,11 +115,17 @@ void parallel_radix_sort(tuple_key_t *data, const size_t &sz, const size_t &leve
     }
     sum += buckets[i];
   }
-  printf("%zu items in wrong bucket\n", cnt);
-  printf("%zu items in original bucket\n", sum);
+  printf("[Level %zu] %zu items in wrong bucket\n", level, cnt);
 
   for (size_t i = 0; i < NUM_BUCKETS; i++) {
     free(p[i]);
+  }
+
+  if (level < KEY_SIZE) {
+    size_t offset = 0;
+    for (size_t bucket_id = 0; bucket_id < NUM_BUCKETS; bucket_id++) {
+      parallel_radix_sort(data + offset, buckets[bucket_id], level + 1, num_threads);
+    }
   }
 }
 
