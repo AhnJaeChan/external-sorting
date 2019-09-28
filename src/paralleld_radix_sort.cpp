@@ -124,17 +124,17 @@ void parallel_radix_sort(tuple_key_t *data, size_t sz, size_t level, size_t num_
   if (level < KEY_SIZE) {
     size_t offset = 0;
     for (size_t bucket_id = 0; bucket_id < NUM_BUCKETS; bucket_id++) {
-      parallel_radix_sort(data + offset, buckets[bucket_id], level + 1, num_threads);
+      parallel_radix_sort(data + offset, buckets[bucket_id], level + 1, NUM_BUCKETS / num_threads);
     }
   }
 }
 
 // 8-bit radix sorting
 size_t bucket(const tuple_key_t &data, const size_t &level) {
-  return (size_t) (data.key[level] & 0xFF);
+  return (size_t) ((size_t) (((char *) &data) + level) & 0xFF);
 }
 
-void permute(tuple_key_t *data, const size_t &level, section_t **p, const size_t &thread_id) {
+void permute(tuple_key_t *data, const size_t &level, section_t *p[NUM_BUCKETS], const size_t &thread_id) {
   for (size_t bucket_id = 0; bucket_id < NUM_BUCKETS; bucket_id++) {
     size_t head = p[bucket_id][thread_id].head;
     while (head < p[bucket_id][thread_id].tail) {
@@ -154,7 +154,7 @@ void permute(tuple_key_t *data, const size_t &level, section_t **p, const size_t
   }
 }
 
-void repair(tuple_key_t *data, const size_t &level, section_t *g, section_t **p, const size_t &bucket_id,
+void repair(tuple_key_t *data, const size_t &level, section_t *g, section_t *p[NUM_BUCKETS], const size_t &bucket_id,
             const size_t &num_threads) {
   size_t tail = g[bucket_id].tail;
   for (size_t thread_id = 0; thread_id < num_threads; thread_id++) {
