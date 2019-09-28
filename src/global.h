@@ -12,7 +12,9 @@
 
 #define TUPLE_SIZE (100)
 #define KEY_SIZE (10)
-#define PHASE1_BUFFER_SIZE (500000000)  // 1GB
+#define READ_BUFFER_SIZE (500000000)  // 1GB
+
+#define NUM_BUCKETS (256)
 
 #define TMP_DIRECTORY ("./data/")
 
@@ -53,8 +55,8 @@ typedef struct param {
   int output_fd;
   size_t total_file_size;
   size_t num_partitions;
-  size_t num_tuples;
   tuple_key_t *thresholds;
+  size_t buffer_size;
 } param_t;
 
 #endif //MULTICORE_EXTERNAL_SORT_GLOBAL_H
