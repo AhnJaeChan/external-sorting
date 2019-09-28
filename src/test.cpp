@@ -38,6 +38,16 @@ int main() {
   t2 = chrono::high_resolution_clock::now();
 
   duration = chrono::duration_cast<chrono::milliseconds>(t2 - t1).count();
+
+  size_t cnt = 0;
+  for (size_t i = 1; i < num_tuples; i++) {
+    if (keys[i - 1] > keys[i]) {
+      cnt++;
+    }
+  }
+
+  printf("[Result]: unordered tuples = %zu\n", cnt);
+
   cout << "[Phase1] took: " << duration << "(milliseconds)" << endl;
 
   close(input_fd);
