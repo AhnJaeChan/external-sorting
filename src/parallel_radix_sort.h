@@ -2,8 +2,8 @@
 // Created by 안재찬 on 27/09/2019.
 //
 
-#ifndef MULTICORE_EXTERNAL_SORT_PARALLELD_RADIX_SORT_H
-#define MULTICORE_EXTERNAL_SORT_PARALLELD_RADIX_SORT_H
+#ifndef MULTICORE_EXTERNAL_SORT_PARALLEL_RADIX_SORT_H
+#define MULTICORE_EXTERNAL_SORT_PARALLEL_RADIX_SORT_H
 
 #include <cstddef>
 #include "global.h"
@@ -21,4 +21,4 @@ void permute(tuple_key_t *data, const size_t &level, section_t *p[NUM_BUCKETS], 
 void repair(tuple_key_t *data, const size_t &level, section_t *g, section_t *p[NUM_BUCKETS], const size_t &bucket_id,
             const size_t &num_threads);
 
-#endif //MULTICORE_EXTERNAL_SORT_PARALLELD_RADIX_SORT_H
+#endif //MULTICORE_EXTERNAL_SORT_PARALLEL_RADIX_SORT_H

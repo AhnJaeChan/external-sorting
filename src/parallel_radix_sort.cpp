@@ -2,7 +2,7 @@
 // Created by 안재찬 on 27/09/2019.
 //
 
-#include "paralleld_radix_sort.h"
+#include "parallel_radix_sort.h"
 
 #include <algorithm>
 #include <cstdio>

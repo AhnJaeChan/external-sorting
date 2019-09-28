@@ -13,7 +13,7 @@
 #include <omp.h>
 
 #include "global.h"
-#include "paralleld_radix_sort.h"
+#include "parallel_radix_sort.h"
 
 using namespace std;
 
