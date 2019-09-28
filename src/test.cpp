@@ -22,19 +22,28 @@ int main() {
   if (input_fd == -1) {
     return 1;
   }
-  size_t num_tuples = 1000000;
-  char *buffer = (char *) malloc(TUPLE_SIZE * num_tuples);
-  size_t ret = pread(input_fd, buffer, TUPLE_SIZE * num_tuples, 0);
-  printf("%zu tuples read\n", ret / TUPLE_SIZE);
+  size_t file_size = lseek(input_fd, 0, SEEK_END);
+  size_t num_tuples = file_size / TUPLE_SIZE;
+
+  char *buffer = (char *) malloc(file_size);
   tuple_key_t *keys = (tuple_key_t *) malloc(KEY_SIZE * num_tuples);
-  for (size_t i = 0; i < num_tuples; i++) {
-    memcpy(keys + i, buffer + TUPLE_SIZE * i, KEY_SIZE);
+
+  for (size_t offset = 0; offset < file_size;) {
+    size_t ret = pread(input_fd, buffer + offset, file_size - offset, offset);
+    offset += ret;
   }
+
+  for (size_t j = 0; j < num_tuples; j++) {
+    memcpy(keys + j, buffer + TUPLE_SIZE * j, KEY_SIZE);
+  }
+  printf("%zu tuples read\n", num_tuples);
+
 
   chrono::time_point<chrono::system_clock> t1, t2;
   long long int duration;
   t1 = chrono::high_resolution_clock::now();
   parallel_radix_sort(keys, num_tuples, 0, omp_get_num_threads());
+//  std::sort(keys, keys + num_tuples);
   t2 = chrono::high_resolution_clock::now();
 
   duration = chrono::duration_cast<chrono::milliseconds>(t2 - t1).count();

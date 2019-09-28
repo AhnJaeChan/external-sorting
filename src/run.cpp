@@ -10,6 +10,7 @@
 #include <omp.h>
 
 #include "global.h"
+#include "parallel_radix_sort.h"
 
 using namespace std;
 
@@ -21,63 +22,63 @@ size_t bucket(const tuple_key &key, const tuple_key *thresholds, const size_t &n
 void radix_sort(tuple_t *data, size_t sz, tuple_key_t *thresholds, size_t *buckets, size_t num_buckets);
 void phase3(param_t &param);
 
-//int main(int argc, char *argv[]) {
-//  if (argc < 3) {
-//    printf("Program usage: ./run input_file_name output_file_name\n");
-//    return 0;
-//  }
-//
-//  if (prepare_environment() == -1) {
-//    printf("[Error] directory cannot be made\n");
-//  }
-//
-//  param_t param;
-//  chrono::time_point<chrono::system_clock> t1, t2;
-//  long long int duration;
-//
-//  /// [Phase 1] START
-//  if ((param.input_fd = open(argv[1], O_RDONLY)) == -1) {
-//    printf("[Error] failed to open input file %s\n", argv[1]);
-//    return 0;
-//  }
-//
-//  t1 = chrono::high_resolution_clock::now();
-//  phase1(param);
-//  t2 = chrono::high_resolution_clock::now();
-//
-//  duration = chrono::duration_cast<chrono::milliseconds>(t2 - t1).count();
-//  cout << "[Phase1] took: " << duration << "(milliseconds)" << endl;
-//  /// [Phase 1] END
-//
-//  /// [Phase 2] START
-//  t1 = chrono::high_resolution_clock::now();
-//  phase2(param);
-//  t2 = chrono::high_resolution_clock::now();
-//
-//  duration = chrono::duration_cast<chrono::milliseconds>(t2 - t1).count();
-//  cout << "[Phase2] took: " << duration << "(milliseconds)" << endl;
-//  /// [Phase 2] END
-//
-//  /// [Phase 3] START
-//  if ((param.output_fd = open(argv[2], O_RDWR | O_CREAT | O_TRUNC, 0777)) == -1) {
-//    printf("[Error] failed to open input file %s\n", argv[2]);
-//    return 0;
-//  }
-//  t1 = chrono::high_resolution_clock::now();
-//  phase3(param);
-//  t2 = chrono::high_resolution_clock::now();
-//
-//  duration = chrono::duration_cast<chrono::milliseconds>(t2 - t1).count();
-//  cout << "[Phase3] took: " << duration << "(milliseconds)" << endl;
-//  /// [Phase 3] END
-//
-//  close(param.input_fd);
-//  close(param.output_fd);
-//
-//  free(param.thresholds);
-//
-//  return 0;
-//}
+int main2(int argc, char *argv[]) {
+  if (argc < 3) {
+    printf("Program usage: ./run input_file_name output_file_name\n");
+    return 0;
+  }
+
+  if (prepare_environment() == -1) {
+    printf("[Error] directory cannot be made\n");
+  }
+
+  param_t param;
+  chrono::time_point<chrono::system_clock> t1, t2;
+  long long int duration;
+
+  /// [Phase 1] START
+  if ((param.input_fd = open(argv[1], O_RDONLY)) == -1) {
+    printf("[Error] failed to open input file %s\n", argv[1]);
+    return 0;
+  }
+
+  t1 = chrono::high_resolution_clock::now();
+  phase1(param);
+  t2 = chrono::high_resolution_clock::now();
+
+  duration = chrono::duration_cast<chrono::milliseconds>(t2 - t1).count();
+  cout << "[Phase1] took: " << duration << "(milliseconds)" << endl;
+  /// [Phase 1] END
+
+  /// [Phase 2] START
+  t1 = chrono::high_resolution_clock::now();
+  phase2(param);
+  t2 = chrono::high_resolution_clock::now();
+
+  duration = chrono::duration_cast<chrono::milliseconds>(t2 - t1).count();
+  cout << "[Phase2] took: " << duration << "(milliseconds)" << endl;
+  /// [Phase 2] END
+
+  /// [Phase 3] START
+  if ((param.output_fd = open(argv[2], O_RDWR | O_CREAT | O_TRUNC, 0777)) == -1) {
+    printf("[Error] failed to open input file %s\n", argv[2]);
+    return 0;
+  }
+  t1 = chrono::high_resolution_clock::now();
+  phase3(param);
+  t2 = chrono::high_resolution_clock::now();
+
+  duration = chrono::duration_cast<chrono::milliseconds>(t2 - t1).count();
+  cout << "[Phase3] took: " << duration << "(milliseconds)" << endl;
+  /// [Phase 3] END
+
+  close(param.input_fd);
+  close(param.output_fd);
+
+  free(param.thresholds);
+
+  return 0;
+}
 
 int prepare_environment() {
   if (mkdir(TMP_DIRECTORY, S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH) == -1) {
@@ -88,7 +89,6 @@ int prepare_environment() {
       return -1;
     }
   }
-  omp_set_num_threads(NUM_THREADS);
 
   return 0;
 }
@@ -141,7 +141,8 @@ void phase1(param_t &param) {
   }
 
   // Sort the key list, ascending order
-  sort(keys, keys + num_tuples);
+//  sort(keys, keys + num_tuples);
+  parallel_radix_sort(keys, num_tuples, 0, omp_get_thread_num());
 
   // Need $(num_partitions - 1) keys to separate the whole input into $num_partitions parts.
   // They will be used as following (ex. num_partitions = 4)
@@ -181,7 +182,7 @@ void phase2(param_t &param) {
     }
   }
 
-  #pragma omp parallel num_threads(NUM_THREADS) shared(param, num_cycles, buffer_size, output_fds, head_offsets) default(none)
+  #pragma omp parallel shared(param, num_cycles, buffer_size, output_fds, head_offsets) default(none)
   {
     char *buffer;
     if ((buffer = (char *) malloc(buffer_size)) == NULL) {
@@ -284,7 +285,7 @@ void phase3(param_t &param) {
     sum += file_sizes[i];
   }
 
-  #pragma omp parallel num_threads(NUM_THREADS) shared(param, buffer_size, input_fds, file_sizes, head_offsets) default(none)
+  #pragma omp parallel shared(param, buffer_size, input_fds, file_sizes, head_offsets) default(none)
   {
     char *buffer;
     if ((buffer = (char *) malloc(buffer_size)) == NULL) {
