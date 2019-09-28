@@ -11,7 +11,6 @@
 
 
 void parallel_radix_sort(tuple_key_t *data, size_t sz, size_t level, size_t num_processors) {
-  printf("num threads: %zu\n", num_processors);
   if (sz <= 64) {
     std::sort(data, data + sz);
     return;
@@ -58,131 +57,88 @@ void parallel_radix_sort(tuple_key_t *data, size_t sz, size_t level, size_t num_
     g[i].tail = sum;
   }
 
-//  while (sum > 0) {
-  // Partition For Permutation
-  for (size_t bucket_id = 0; bucket_id < NUM_BUCKETS; bucket_id++) {
-    size_t total = g[bucket_id].tail - g[bucket_id].head;
+  while (sum > 0) {
+    // Partition For Permutation
+    for (size_t bucket_id = 0; bucket_id < NUM_BUCKETS; bucket_id++) {
+      size_t total = g[bucket_id].tail - g[bucket_id].head;
 
-    if (total == 0) {
-      for (size_t thread_id = 0; thread_id < num_processors; thread_id++) {
+      if (total == 0) {
+        for (size_t thread_id = 0; thread_id < num_processors; thread_id++) {
+          p[bucket_id][thread_id].head = p[bucket_id][thread_id].tail = g[bucket_id].tail;
+        }
+        continue;
+      }
+
+      size_t needed_threads = num_processors;
+      size_t chunk_size = total / num_processors;
+
+      if (total < num_processors) {
+        needed_threads = 1;
+        chunk_size = 1;
+      }
+
+      for (size_t thread_id = 0; thread_id < needed_threads; thread_id++) {
+        p[bucket_id][thread_id].head = g[bucket_id].head + chunk_size * thread_id;
+        p[bucket_id][thread_id].tail = p[bucket_id][thread_id].head + chunk_size;
+      }
+      p[bucket_id][needed_threads - 1].tail = g[bucket_id].tail;
+
+      for (size_t thread_id = needed_threads; thread_id < num_processors; thread_id++) {
         p[bucket_id][thread_id].head = p[bucket_id][thread_id].tail = g[bucket_id].tail;
       }
-      continue;
     }
 
-    size_t needed_threads = num_processors;
-    size_t chunk_size = total / num_processors;
-
-    if (total < num_processors) {
-      needed_threads = 1;
-      chunk_size = 1;
-    }
-
-    for (size_t thread_id = 0; thread_id < needed_threads; thread_id++) {
-      p[bucket_id][thread_id].head = g[bucket_id].head + chunk_size * thread_id;
-      p[bucket_id][thread_id].tail = p[bucket_id][thread_id].head + chunk_size;
-    }
-    p[bucket_id][needed_threads - 1].tail = g[bucket_id].tail;
-//      if (needed_threads != num_threads) {
-//        memset(&p[bucket_id][needed_threads], 0,
-//               sizeof(section_t) * (num_threads - needed_threads));
-//      }
-    for (size_t thread_id = needed_threads; thread_id < num_processors; thread_id++) {
-      p[bucket_id][thread_id].head = p[bucket_id][thread_id].tail = g[bucket_id].tail;
-    }
-  }
-
-  // Check divide permutation
-//  for (size_t i = 0; i < NUM_BUCKETS; i++) {
-//    printf("Bucket[%zu]: %zu ~ %zu\n", i, g[i].head, g[i].tail);
-//    for (size_t j = 0; j < num_processors; j++) {
-//      printf("\tthread[%zu]: %zu ~ %zu\n", j, p[i][j].head, p[i][j].tail);
-//    }
-//  }
-
-  #pragma omp parallel shared(data, level, num_processors, p) default(none)
-  {
-    #pragma omp for
-    for (size_t thread_id = 0; thread_id < num_processors; thread_id++) {
-      permute(data, level, p, thread_id);
-    }
-  }
-
-  printf("\n\n@@@ AFTER PERMUTATION @@@\n\n");
-
-  // Check after permutation
-  for (size_t i = 0; i < 10; i++) {
-    printf("Bucket[%zu]: %zu ~ %zu\n", i, g[i].head, g[i].tail);
-    size_t head = g[i].head;
-    for (size_t j = 0; j < num_processors; j++) {
-      printf("\tthread[%zu]: %zu ~ %zu\n", j, p[i][j].head, p[i][j].tail);
-      for (size_t k = head; k < p[i][j].head; k++) {
-        if (bucket(data[k], level) != i) {
-          printf("\t\t[%zu] Wrong element\n", k);
-        }
+    #pragma omp parallel shared(data, level, num_processors, p) default(none)
+    {
+      #pragma omp for
+      for (size_t thread_id = 0; thread_id < num_processors; thread_id++) {
+        permute(data, level, p, thread_id);
       }
-      head = p[i][j].tail;
     }
-  }
 
-  // Synchronization
+    // Synchronization
 
-  #pragma omp parallel shared(data, level, num_processors, g, p) default(none)
-  {
-    #pragma omp for
-    for (size_t bucket_id = 0; bucket_id < NUM_BUCKETS; bucket_id++) {
-      repair(data, level, g, p, bucket_id, num_processors);
+    #pragma omp parallel shared(data, level, num_processors, g, p) default(none)
+    {
+      #pragma omp for
+      for (size_t bucket_id = 0; bucket_id < NUM_BUCKETS; bucket_id++) {
+        repair(data, level, g, p, bucket_id, num_processors);
+      }
+    }
+
+    // Synchronization
+
+    sum = 0;
+    for (size_t i = 0; i < NUM_BUCKETS; i++) {
+      sum += g[i].tail - g[i].head;
     }
   }
 
   sum = 0;
-//  for (size_t i = 0; i < NUM_BUCKETS; i++) {
-//    printf("bucket[%zu] %zu ~ %zu\n", i, g[i].head, g[i].tail);
-//    for (size_t j = sum; j < g[i].head; j++) {
-//      if (bucket(data[j], level) != i) {
-//        printf("\t[%zu] Doesn't belong here\n", j);
-//      }
-//    }
-//    sum = g[i].tail;
-////    for (size_t j = 0; j < num_threads; j++) {
-////      if (bucket(data[g[i].head - 1], level) != i) {
-////      }
-////      printf("\tthread[%zu] %zu ~ %zu\n", j, p[i][j].head, p[i][j].tail);
-////    }
-//  }
-
-  // Synchronization
-
-  sum = 0;
+  size_t cnt = 0;
   for (size_t i = 0; i < NUM_BUCKETS; i++) {
-    sum += g[i].tail - g[i].head;
-  }
-//  }
-
-//  sum = 0;
-//  size_t cnt = 0;
-//  for (size_t i = 0; i < NUM_BUCKETS; i++) {
 //    printf("bucket[%zu]\n", i);
-//    for (size_t j = 0; j < buckets[i]; j++) {
-//      if (bucket(data[sum + j], level) != i) {
+    for (size_t j = 0; j < buckets[i]; j++) {
+      if (bucket(data[sum + j], level) != i) {
 //        printf("\titem [%zu], %zu\n", j, bucket(data[sum + j], level));
-//        cnt++;
-//      }
-//    }
-//    sum += buckets[i];
-//  }
-//  printf("[Level %zu] %zu items in wrong bucket\n", level, cnt);
+        cnt++;
+      }
+    }
+    sum += buckets[i];
+  }
+  printf("[Level %zu] %zu items in wrong bucket\n", level, cnt);
 
   for (size_t i = 0; i < NUM_BUCKETS; i++) {
     free(p[i]);
   }
 
-//  if (level < KEY_SIZE) {
-//    size_t offset = 0;
-//    for (size_t bucket_id = 0; bucket_id < NUM_BUCKETS; bucket_id++) {
-//      parallel_radix_sort(data + offset, buckets[bucket_id], level + 1, NUM_BUCKETS / num_threads);
-//    }
-//  }
+  if (level < KEY_SIZE) {
+    size_t offset = 0;
+    for (size_t bucket_id = 0; bucket_id < NUM_BUCKETS; bucket_id++) {
+      parallel_radix_sort(data + offset, buckets[bucket_id], level + 1, num_processors);
+      offset += buckets[bucket_id];
+    }
+  }
 }
 
 // 8-bit radix sorting
