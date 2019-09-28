@@ -22,7 +22,7 @@ size_t bucket(const tuple_key &key, const tuple_key *thresholds, const size_t &n
 void radix_sort(tuple_t *data, size_t sz, tuple_key_t *thresholds, size_t *buckets, size_t num_buckets);
 void phase3(param_t &param);
 
-int main2(int argc, char *argv[]) {
+int main(int argc, char *argv[]) {
   if (argc < 3) {
     printf("Program usage: ./run input_file_name output_file_name\n");
     return 0;

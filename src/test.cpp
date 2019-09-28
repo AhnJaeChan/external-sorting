@@ -17,7 +17,7 @@
 
 using namespace std;
 
-int main() {
+int main2() {
   int input_fd = open("data/input_1gb.data", O_RDONLY);
   if (input_fd == -1) {
     return 1;
