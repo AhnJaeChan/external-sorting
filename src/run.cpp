@@ -1,5 +1,6 @@
 #include <iostream>
 #include <algorithm>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 
@@ -76,6 +77,12 @@ int main(int argc, char *argv[]) {
   close(param.output_fd);
 
   free(param.thresholds);
+
+  for (size_t i = 0; i < param.num_partitions; i++) {
+    string filename(TMP_DIRECTORY);
+    filename += to_string(i) + ".data";
+    remove(filename.c_str());
+  }
 
   return 0;
 }

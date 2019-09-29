@@ -40,14 +40,7 @@ void parallel_radix_sort(tuple_key_t *data, size_t sz, size_t level, size_t num_
 
   size_t sum = 0;
   section_t g[NUM_BUCKETS];
-  section_t *p[NUM_BUCKETS];
-
-  for (size_t i = 0; i < NUM_BUCKETS; i++) {
-    if ((p[i] = (section_t *) malloc(sizeof(section_t) * num_processors)) == NULL) {
-      printf("memory allocation failed\n");
-      return;
-    }
-  }
+  section_t p[NUM_BUCKETS][num_processors];
 
   // Set bucket [head, tail]
   // Partition for repair
@@ -93,7 +86,7 @@ void parallel_radix_sort(tuple_key_t *data, size_t sz, size_t level, size_t num_
     {
       #pragma omp for
       for (size_t thread_id = 0; thread_id < num_processors; thread_id++) {
-        permute(data, level, p, thread_id);
+        permute(data, level, (section_t *) p, num_processors, thread_id);
       }
     }
 
@@ -103,7 +96,7 @@ void parallel_radix_sort(tuple_key_t *data, size_t sz, size_t level, size_t num_
     {
       #pragma omp for
       for (size_t bucket_id = 0; bucket_id < NUM_BUCKETS; bucket_id++) {
-        repair(data, level, g, p, bucket_id, num_processors);
+        repair(data, level, g, (section_t *) p, num_processors, bucket_id);
       }
     }
 
@@ -115,10 +108,6 @@ void parallel_radix_sort(tuple_key_t *data, size_t sz, size_t level, size_t num_
         break;
       }
     }
-  }
-
-  for (size_t i = 0; i < NUM_BUCKETS; i++) {
-    free(p[i]);
   }
 
   if (level < KEY_SIZE) {
@@ -135,30 +124,30 @@ size_t bucket(const tuple_key_t &data, const size_t &level) {
   return (size_t) (data.key[level] & 0xFF);
 }
 
-void permute(tuple_key_t *data, const size_t &level, section_t *p[NUM_BUCKETS], const size_t &thread_id) {
+void permute(tuple_key_t *data, const size_t &level, section_t *p, const size_t &num_threads, const size_t &thread_id) {
   for (size_t bucket_id = 0; bucket_id < NUM_BUCKETS; bucket_id++) {
-    size_t head = p[bucket_id][thread_id].head;
-    while (head < p[bucket_id][thread_id].tail) {
+    size_t head = ((p + bucket_id * num_threads) + thread_id)->head;
+    while (head < ((p + bucket_id * num_threads) + thread_id)->tail) {
       tuple_key_t &v = data[head];
       size_t k = bucket(v, level);
-      while (k != bucket_id && p[k][thread_id].head < p[k][thread_id].tail) {
-        std::swap(v, data[p[k][thread_id].head++]);
+      while (k != bucket_id && ((p + k * num_threads) + thread_id)->head < ((p + k * num_threads) + thread_id)->tail) {
+        std::swap(v, data[((p + k * num_threads) + thread_id)->head++]);
         k = bucket(v, level);
       }
       head++;
       if (k == bucket_id) {
-        p[bucket_id][thread_id].head++;
+        ((p + bucket_id * num_threads) + thread_id)->head++;
       }
     }
   }
 }
 
-void repair(tuple_key_t *data, const size_t &level, section_t *g, section_t *p[NUM_BUCKETS], const size_t &bucket_id,
-            const size_t &num_threads) {
+void repair(tuple_key_t *data, const size_t &level, section_t *g, section_t *p, const size_t &num_threads,
+            const size_t &bucket_id) {
   size_t tail = g[bucket_id].tail;
   for (size_t thread_id = 0; thread_id < num_threads; thread_id++) {
-    size_t head = p[bucket_id][thread_id].head;
-    while (head < p[bucket_id][thread_id].tail && head < tail) {
+    size_t head = ((p + bucket_id * num_threads) + thread_id)->head;
+    while (head < ((p + bucket_id * num_threads) + thread_id)->tail && head < tail) {
       tuple_key_t &v = data[head++];
       if (bucket(v, level) != bucket_id) {
         while (head < tail) {

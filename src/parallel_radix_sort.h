@@ -17,8 +17,8 @@ typedef struct section {
 
 void parallel_radix_sort(tuple_key_t *data, size_t sz, size_t level, size_t num_processors);
 size_t bucket(const tuple_key_t &data, const size_t &level);
-void permute(tuple_key_t *data, const size_t &level, section_t *p[NUM_BUCKETS], const size_t &thread_id);
-void repair(tuple_key_t *data, const size_t &level, section_t *g, section_t *p[NUM_BUCKETS], const size_t &bucket_id,
-            const size_t &num_threads);
+void permute(tuple_key_t *data, const size_t &level, section_t *p, const size_t &num_threads, const size_t &thread_id);
+void repair(tuple_key_t *data, const size_t &level, section_t *g, section_t *p, const size_t &num_threads,
+            const size_t &bucket_id);
 
 #endif //MULTICORE_EXTERNAL_SORT_PARALLEL_RADIX_SORT_H
