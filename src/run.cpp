@@ -112,36 +112,79 @@ void phase1(param_t &param) {
   size_t num_tuples = file_size / TUPLE_SIZE;                       // Number of tuples
   size_t num_partitions = (file_size - 1) / BUFFER_SIZE + 1;   // Total cycles run to process the input file
 
+  chrono::time_point<chrono::system_clock> t1, t2;
+  long long int duration;
+  t1 = chrono::high_resolution_clock::now();
+
   tuple_key_t *keys;
   if ((keys = (tuple_key_t *) malloc(sizeof(tuple_key_t) * num_tuples)) == NULL) {
     printf("Buffer allocation failed (key buffer)\n");
     return;
   }
 
-  // For each cycle, we must only extract the keys
-  size_t key_offset = 0;
-  size_t head_offset = 0;
-  for (size_t i = 0; i < num_partitions; i++) {
-    size_t read_amount = i != num_partitions - 1 ? BUFFER_SIZE :
+  // Parallel read
+  tuple_t *data = (tuple_t *) param.buffer;
+
+  for (size_t partition_id = 0; partition_id < num_partitions; partition_id++) {
+    size_t read_amount = partition_id != num_partitions - 1 ? BUFFER_SIZE :
                          (file_size - 1) % BUFFER_SIZE + 1; // The last part will have remainders
 
-    for (size_t offset = 0; offset < read_amount;) {
-      size_t ret = pread(param.input_fd, param.buffer + offset, head_offset + read_amount - offset,
-                         head_offset + offset);
-      offset += ret;
-    }
-    head_offset += read_amount;
+    #pragma omp parallel shared(param, partition_id, data, keys, read_amount) default(none)
+    {
+      size_t num_threads = omp_get_num_threads();
+      size_t chunk_size = BUFFER_SIZE / num_threads;
+      size_t partition_offset = (partition_id * BUFFER_SIZE) / TUPLE_SIZE;
 
-    tuple_t *data = (tuple_t *) param.buffer; // Need to use buffer as tuple type below, just a typecasting pointer
-    // Need to extract only the keys
-    for (size_t j = 0; j < read_amount / TUPLE_SIZE; j++) {
-      memcpy(&keys[key_offset + j], &data[j], KEY_SIZE);
+      #pragma omp for
+      for (size_t i = 0; i < num_threads; i++) {
+        size_t thread_read_amount =
+            i != num_threads - 1 ? chunk_size : read_amount - chunk_size * i;
+        size_t head_offset = chunk_size * i;
+
+        for (size_t offset = 0; offset < thread_read_amount;) {
+          size_t ret = pread(param.input_fd, param.buffer + head_offset + offset, read_amount - offset,
+                             head_offset + offset);
+          offset += ret;
+        }
+
+        size_t key_offset = partition_offset + head_offset / TUPLE_SIZE;
+        // Need to extract only the keys
+        for (size_t j = 0; j < thread_read_amount / TUPLE_SIZE; j++) {
+          memcpy(&keys[key_offset + j], &data[j], KEY_SIZE);
+        }
+      }
     }
-    key_offset += (read_amount / TUPLE_SIZE);
   }
+//[Phase1] reading: 1062 (milliseconds) - Single
+//[Phase1] reading: 1453 (milliseconds) - Multi
 
-  chrono::time_point<chrono::system_clock> t1, t2;
-  long long int duration;
+//  // For each cycle, we must only extract the keys
+//  size_t key_offset = 0;
+//  size_t head_offset = 0;
+//  for (size_t i = 0; i < num_partitions; i++) {
+//    size_t read_amount = i != num_partitions - 1 ? BUFFER_SIZE :
+//                         (file_size - 1) % BUFFER_SIZE + 1; // The last part will have remainders
+//
+//    for (size_t offset = 0; offset < read_amount;) {
+//      size_t ret = pread(param.input_fd, param.buffer + offset, head_offset + read_amount - offset,
+//                         head_offset + offset);
+//      offset += ret;
+//    }
+//    head_offset += read_amount;
+//
+//    tuple_t *data = (tuple_t *) param.buffer; // Need to use buffer as tuple type below, just a typecasting pointer
+//    // Need to extract only the keys
+//    for (size_t j = 0; j < read_amount / TUPLE_SIZE; j++) {
+//      memcpy(&keys[key_offset + j], &data[j], KEY_SIZE);
+//    }
+//    key_offset += (read_amount / TUPLE_SIZE);
+//  }
+
+  t2 = chrono::high_resolution_clock::now();
+  duration = chrono::duration_cast<chrono::milliseconds>(t2 - t1).count();
+  cout << "[Phase1] reading: " << duration << " (milliseconds)" << endl;
+
+
   // Sort the key list, ascending order
   t1 = chrono::high_resolution_clock::now();
   radix_sort::parallel_radix_sort<tuple_key_t>(keys, num_tuples, 0, 1);
