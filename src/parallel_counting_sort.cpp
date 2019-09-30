@@ -1,44 +1,40 @@
 //
-// Created by 안재찬 on 27/09/2019.
+// Created by 안재찬 on 30/09/2019.
 //
 
-#include "parallel_radix_sort.h"
+#include "parallel_counting_sort.h"
 
 #include <cstdio>
 #include <utility>
 #include <algorithm>
-#include <cstring>
-#include <cmath>
 #include <omp.h>
 
-namespace radix_sort {
+namespace counting_sort {
 
-  template void
-  parallel_radix_sort<tuple_key_t>(tuple_key_t *, size_t, size_t, size_t); // instantiates f<double>(double)
-  template void parallel_radix_sort<tuple_t>(tuple_t *, size_t, size_t, size_t); // instantiates f<double>(double)
-
-  template<class T>
-  void parallel_radix_sort(T *data, size_t sz, size_t level, size_t num_processors) {
-    if (sz < 64) {
-      std::sort(data, data + sz);
-      return;
+  size_t bucket(tuple_t &data, const tuple_key_t *thresholds, const size_t &num_thresholds) {
+    for (size_t i = 0; i < num_thresholds; i++) {
+      if ((tuple_key_t &) data < thresholds[i]) {
+        return i;
+      }
     }
-    if (num_processors == 0) {
-      num_processors = 1;
-    }
+    return num_thresholds;
+//    return std::upper_bound(thresholds, thresholds + num_thresholds, (tuple_key_t &) data) - thresholds;
+  }
 
-    size_t buckets[NUM_BUCKETS];
-    memset(buckets, 0, sizeof(size_t) * NUM_BUCKETS);
+  void parallel_counting_sort_v2(tuple_t *data, size_t sz, tuple_key_t *thresholds,
+                                 size_t *buckets, size_t num_buckets, size_t num_processors) {
+    size_t num_thresholds = num_buckets - 1;
+    memset(buckets, 0, sizeof(size_t) * num_buckets);
 
     // Build histogram
-    #pragma omp parallel shared(sz, data, num_processors, level, buckets) default(none)
+    #pragma omp parallel shared(sz, data, thresholds, num_thresholds, buckets, num_processors) default(none)
     {
       #pragma omp for
       for (size_t i = 0; i < num_processors; i++) {
         size_t head_offset = i * sz / num_processors;
         size_t chunk_size = i == num_processors - 1 ? sz / num_processors + sz % num_processors : sz / num_processors;
         for (size_t offset = head_offset; offset < head_offset + chunk_size; offset++) {
-          size_t b = bucket(&data[offset], level);
+          size_t b = bucket(data[offset], thresholds, num_thresholds);
           #pragma omp atomic
           buckets[b]++;
         }
@@ -46,12 +42,12 @@ namespace radix_sort {
     }
 
     size_t sum = 0;
-    section_t g[NUM_BUCKETS];
-    section_t p[NUM_BUCKETS][num_processors];
+    section_t g[num_buckets];
+    section_t p[num_buckets][num_processors];
 
     // Set bucket [head, tail]
     // Partition for repair
-    for (size_t i = 0; i < NUM_BUCKETS; i++) {
+    for (size_t i = 0; i < num_buckets; i++) {
       g[i].head = sum;
       sum += buckets[i];
       g[i].tail = sum;
@@ -60,7 +56,7 @@ namespace radix_sort {
     bool is_empty = false;
     while (!is_empty) {
       // Partition For Permutation
-      for (size_t bucket_id = 0; bucket_id < NUM_BUCKETS; bucket_id++) {
+      for (size_t bucket_id = 0; bucket_id < num_buckets; bucket_id++) {
         size_t total = g[bucket_id].tail - g[bucket_id].head;
 
         if (total == 0) {
@@ -90,62 +86,40 @@ namespace radix_sort {
       }
 
       // Permutation stage
-      #pragma omp parallel shared(data, level, num_processors, p) default(none)
+      #pragma omp parallel shared(data, thresholds, num_thresholds, num_processors, p, num_buckets) default(none)
       {
         #pragma omp for
         for (size_t thread_id = 0; thread_id < num_processors; thread_id++) {
-          permute(data, level, (section_t *) p, num_processors, thread_id);
+          permute(data, thresholds, num_thresholds, (section_t *) p, num_processors, thread_id, num_buckets);
         }
       }
 
       // Repair stage
       is_empty = true;
-      #pragma omp parallel shared(data, level, num_processors, g, p, is_empty) default(none)
+      #pragma omp parallel shared(data, thresholds, num_thresholds, num_processors, g, p, is_empty, num_buckets) default(none)
       {
         #pragma omp for
-        for (size_t bucket_id = 0; bucket_id < NUM_BUCKETS; bucket_id++) {
-          repair(data, level, g, (section_t *) p, num_processors, bucket_id);
+        for (size_t bucket_id = 0; bucket_id < num_buckets; bucket_id++) {
+          repair(data, thresholds, num_thresholds, g, (section_t *) p, num_processors, bucket_id);
           if (g[bucket_id].tail - g[bucket_id].head > 0) {
             is_empty = false;
           }
         }
       }
     }
-
-    if (level < KEY_SIZE) {
-      size_t offsets[NUM_BUCKETS];
-      offsets[0] = 0;
-      for (size_t i = 1; i < NUM_BUCKETS; i++) {
-        offsets[i] = g[i - 1].tail;
-      }
-
-      #pragma omp parallel shared(data, offsets, buckets, level, num_processors) default(none)
-      {
-        #pragma omp for
-        for (size_t bucket_id = 0; bucket_id < NUM_BUCKETS; bucket_id++) {
-          parallel_radix_sort(data + offsets[bucket_id], buckets[bucket_id],
-                              level + 1, num_processors);
-        }
-      }
-    }
   }
 
-  // 8-bit used for radix
-  size_t bucket(void *data, const size_t &level) {
-    return (size_t) (*(static_cast<char *>(data) + level) & 0xFF);
-  }
-
-  template<class T>
-  void permute(T *data, const size_t &level, section_t *p, const size_t &num_threads, const size_t &thread_id) {
-    for (size_t bucket_id = 0; bucket_id < NUM_BUCKETS; bucket_id++) {
+  void permute(tuple_t *data, const tuple_key_t *thresholds, const size_t &num_thresholds, section_t *p,
+               const size_t &num_threads, const size_t &thread_id, const size_t &num_buckets) {
+    for (size_t bucket_id = 0; bucket_id < num_buckets; bucket_id++) {
       size_t head = ((p + bucket_id * num_threads) + thread_id)->head;
       while (head < ((p + bucket_id * num_threads) + thread_id)->tail) {
-        T &v = data[head];
-        size_t k = bucket(&v, level);
+        tuple_t &v = data[head];
+        size_t k = bucket(v, thresholds, num_thresholds);
         while (k != bucket_id &&
                ((p + k * num_threads) + thread_id)->head < ((p + k * num_threads) + thread_id)->tail) {
           std::swap(v, data[((p + k * num_threads) + thread_id)->head++]);
-          k = bucket(&v, level);
+          k = bucket(v, thresholds, num_thresholds);
         }
         head++;
         if (k == bucket_id) {
@@ -155,18 +129,17 @@ namespace radix_sort {
     }
   }
 
-  template<class T>
-  void repair(T *data, const size_t &level, section_t *g, section_t *p, const size_t &num_threads,
-              const size_t &bucket_id) {
+  void repair(tuple_t *data, const tuple_key_t *thresholds, const size_t &num_thresholds, section_t *g, section_t *p,
+              const size_t &num_threads, const size_t &bucket_id) {
     size_t tail = g[bucket_id].tail;
     for (size_t thread_id = 0; thread_id < num_threads; thread_id++) {
       size_t head = ((p + bucket_id * num_threads) + thread_id)->head;
       while (head < ((p + bucket_id * num_threads) + thread_id)->tail && head < tail) {
-        T &v = data[head++];
-        if (bucket(&v, level) != bucket_id) {
+        tuple_t &v = data[head++];
+        if (bucket(v, thresholds, num_thresholds) != bucket_id) {
           while (head < tail) {
-            T &w = data[--tail];
-            if (bucket(&w, level) == bucket_id) {
+            tuple_t &w = data[--tail];
+            if (bucket(w, thresholds, num_thresholds) == bucket_id) {
               std::swap(v, w);
               break;
             }

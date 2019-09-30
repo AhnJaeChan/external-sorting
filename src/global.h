@@ -12,11 +12,12 @@
 
 #define TUPLE_SIZE (100)
 #define KEY_SIZE (10)
-#define READ_BUFFER_SIZE (500000000)  // 1GB
+#define BUFFER_SIZE (1000000000)  // 1GB
 
 #define NUM_BUCKETS (256)
 
-#define TMP_DIRECTORY ("./data/")
+#define TMP_DIRECTORY ("./tmp/")
+#define TMP_FILE_SUFFIX (".data")
 
 typedef struct tuple {
   char data[100];
@@ -57,6 +58,14 @@ typedef struct param {
   size_t num_partitions;
   tuple_key_t *thresholds;
   size_t buffer_size;
+  char *buffer;
+  tuple_key_t *sorted_keys;
 } param_t;
+
+typedef struct section {
+  size_t head;
+  size_t tail;
+} section_t;
+
 
 #endif //MULTICORE_EXTERNAL_SORT_GLOBAL_H
