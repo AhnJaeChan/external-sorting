@@ -42,8 +42,8 @@ int main2() {
   chrono::time_point<chrono::system_clock> t1, t2;
   long long int duration;
   t1 = chrono::high_resolution_clock::now();
-  parallel_radix_sort(keys, num_tuples, 0, omp_get_num_threads());
-//  std::sort(keys, keys + num_tuples);
+//  parallel_radix_sort(keys, num_tuples, 0, omp_get_num_threads());
+  std::sort(keys, keys + num_tuples);
   t2 = chrono::high_resolution_clock::now();
 
   duration = chrono::duration_cast<chrono::milliseconds>(t2 - t1).count();
