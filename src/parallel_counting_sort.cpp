@@ -4,9 +4,7 @@
 
 #include "parallel_counting_sort.h"
 
-#include <cstdio>
 #include <utility>
-#include <algorithm>
 #include <omp.h>
 
 namespace counting_sort {
@@ -20,8 +18,8 @@ namespace counting_sort {
     return num_thresholds;
   }
 
-  void parallel_counting_sort_v2(tuple_t *data, size_t sz, tuple_key_t *thresholds,
-                                 size_t *buckets, size_t num_buckets, size_t num_processors) {
+  void parallel_counting_sort(tuple_t *data, size_t sz, tuple_key_t *thresholds,
+                              size_t *buckets, size_t num_buckets, size_t num_processors) {
     size_t num_thresholds = num_buckets - 1;
     memset(buckets, 0, sizeof(size_t) * num_buckets);
 

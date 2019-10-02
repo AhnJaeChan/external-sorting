@@ -12,7 +12,7 @@
 
 #define TUPLE_SIZE (100)
 #define KEY_SIZE (10)
-#define BUFFER_SIZE (5000000000)  // 1GB
+#define BUFFER_SIZE (1000000000)  // 1GB
 
 #define NUM_BUCKETS (256)
 

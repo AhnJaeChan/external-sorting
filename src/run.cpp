@@ -72,7 +72,7 @@ int main(int argc, char *argv[]) {
 
     /// [Phase 2] START
     t1 = chrono::high_resolution_clock::now();
-//    phase2(param);
+    phase2(param);
     t2 = chrono::high_resolution_clock::now();
 
     duration = chrono::duration_cast<chrono::milliseconds>(t2 - t1).count();
@@ -81,7 +81,7 @@ int main(int argc, char *argv[]) {
 
     /// [Phase 3] START
     t1 = chrono::high_resolution_clock::now();
-//    phase3(param);
+    phase3(param);
     t2 = chrono::high_resolution_clock::now();
 
     duration = chrono::duration_cast<chrono::milliseconds>(t2 - t1).count();
@@ -117,7 +117,6 @@ void phase_small_file(param_t &param) {
 
   t1 = chrono::high_resolution_clock::now();
   radix_sort::parallel_radix_sort((tuple_t *) param.buffer, param.total_file_size / TUPLE_SIZE, 0);
-//  sort((tuple_t *) param.buffer, (tuple_t*) param.buffer + param.total_file_size / TUPLE_SIZE);
   t2 = chrono::high_resolution_clock::now();
 
   duration = chrono::duration_cast<chrono::milliseconds>(t2 - t1).count();
@@ -175,14 +174,6 @@ void phase1(param_t &param) {
   duration = chrono::duration_cast<chrono::milliseconds>(t2 - t1).count();
   cout << "[Phase1] sorting: " << duration << " (milliseconds)" << endl;
 
-  size_t cnt = 0;
-  for (size_t i = 1; i < num_tuples; i++) {
-    if (keys[i - 1] > keys[i]) {
-      cnt++;
-    }
-  }
-  printf("\tSorting done with %zu unordered items\n", cnt);
-
   // Need $(num_partitions - 1) keys to separate the whole input into $num_partitions parts.
   // They will be used as following (ex. num_partitions = 4)
   // if (key < threshold[0]): put to file 0,
@@ -228,8 +219,8 @@ void phase2(param_t &param) {
 
     t1 = chrono::high_resolution_clock::now();
     size_t buckets[param.num_partitions];
-    counting_sort::parallel_counting_sort_v2((tuple_t *) param.buffer, read_amount / TUPLE_SIZE, param.thresholds,
-                                             buckets, param.num_partitions, 1);
+    counting_sort::parallel_counting_sort((tuple_t *) param.buffer, read_amount / TUPLE_SIZE, param.thresholds,
+                                          buckets, param.num_partitions, 1);
     t2 = chrono::high_resolution_clock::now();
     duration = chrono::duration_cast<chrono::milliseconds>(t2 - t1).count();
     cout << "[Phase2] counting sort (" << partition_id << "): " << duration << " (milliseconds)" << endl;
