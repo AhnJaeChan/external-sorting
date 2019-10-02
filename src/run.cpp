@@ -116,7 +116,7 @@ void phase_small_file(param_t &param) {
   }
 
   t1 = chrono::high_resolution_clock::now();
-  radix_sort::parallel_radix_sort((tuple_t *) param.buffer, param.total_file_size / TUPLE_SIZE, 0, 1);
+  radix_sort::parallel_radix_sort((tuple_t *) param.buffer, param.total_file_size / TUPLE_SIZE, 0);
 //  sort((tuple_t *) param.buffer, (tuple_t*) param.buffer + param.total_file_size / TUPLE_SIZE);
   t2 = chrono::high_resolution_clock::now();
 
@@ -170,7 +170,7 @@ void phase1(param_t &param) {
 
   // Sort the key list, ascending order
   t1 = chrono::high_resolution_clock::now();
-  radix_sort::parallel_radix_sort<tuple_key_t>(keys, num_tuples, 0, 1);
+  radix_sort::parallel_radix_sort<tuple_key_t>(keys, num_tuples, 0);
   t2 = chrono::high_resolution_clock::now();
   duration = chrono::duration_cast<chrono::milliseconds>(t2 - t1).count();
   cout << "[Phase1] sorting: " << duration << " (milliseconds)" << endl;
@@ -274,7 +274,7 @@ void phase3(param_t &param) {
     cout << "[Phase3] reading (" << partition_id << "): " << duration << " (milliseconds)" << endl;
 
     t1 = chrono::high_resolution_clock::now();
-    radix_sort::parallel_radix_sort(data, read_amount / TUPLE_SIZE, 0, 1);
+    radix_sort::parallel_radix_sort(data, read_amount / TUPLE_SIZE, 0);
     t2 = chrono::high_resolution_clock::now();
     duration = chrono::duration_cast<chrono::milliseconds>(t2 - t1).count();
     cout << "[Phase3] radix sort (" << partition_id << "): " << duration << " (milliseconds)" << endl;

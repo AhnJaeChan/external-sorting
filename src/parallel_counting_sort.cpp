@@ -18,7 +18,6 @@ namespace counting_sort {
       }
     }
     return num_thresholds;
-//    return std::upper_bound(thresholds, thresholds + num_thresholds, (tuple_key_t &) data) - thresholds;
   }
 
   void parallel_counting_sort_v2(tuple_t *data, size_t sz, tuple_key_t *thresholds,

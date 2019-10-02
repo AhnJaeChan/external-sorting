@@ -12,7 +12,7 @@ typedef struct tuple_key tuple_key_t;
 
 namespace radix_sort {
   template<typename T>
-  void parallel_radix_sort(T *data, size_t sz, size_t level, size_t num_processors);
+  void parallel_radix_sort(T *data, size_t sz, size_t level);
 
   size_t bucket(void *data, const size_t &level);
   template<class T>
