@@ -12,7 +12,8 @@
 
 #define TUPLE_SIZE (100)
 #define KEY_SIZE (10)
-#define BUFFER_SIZE (1000000000)  // 1GB
+#define READ_BUFFER_SIZE (1000000000)  // 1GB
+#define WRITE_BUFFER_SIZE (500000000)
 
 #define NUM_BUCKETS (256)
 
@@ -54,10 +55,10 @@ typedef struct tuple_key {
 typedef struct param {
   int input_fd;
   int output_fd;
-  size_t total_file_size;
+  size_t file_size;
   size_t num_partitions;
+  size_t num_tuples;
   tuple_key_t *thresholds;
-  size_t buffer_size;
   char *buffer;
   tuple_key_t *sorted_keys;
 } param_t;

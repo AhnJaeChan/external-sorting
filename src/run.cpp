@@ -1,5 +1,4 @@
 #include <iostream>
-#include <algorithm>
 #include <cstdlib>
 #include <cstring>
 
@@ -7,25 +6,29 @@
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <chrono>
-#include <omp.h>
 
 #include "global.h"
 #include "parallel_radix_sort.h"
-#include "parallel_counting_sort.h"
 
 using namespace std;
 
-int prepare_environment();
+int prepare_environment() {
+  if (mkdir(TMP_DIRECTORY, S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH) == -1) {
+    if (errno == EEXIST) {
+      // already exists
+    } else {
+      // something else
+      return -1;
+    }
+  }
+  return 0;
+}
 
 void phase_small_file(param_t &param);
 void phase1(param_t &param);
 void phase2(param_t &param);
-void phase3(param_t &param);
 
 void check_output(char *filename, char *buffer);
-
-chrono::time_point<chrono::system_clock> t1, t2;
-long long int duration;
 
 int main(int argc, char *argv[]) {
   if (argc < 3) {
@@ -33,35 +36,44 @@ int main(int argc, char *argv[]) {
     return 0;
   }
 
+  if (prepare_environment() == -1) {
+    printf("%s directory couldn't be made\n", TMP_DIRECTORY);
+    return 0;
+  }
+
   param_t param;
   param.buffer = NULL;
   param.thresholds = NULL;
   char *buffer;
-  if ((buffer = (char *) malloc(BUFFER_SIZE)) == NULL) {
+  if ((buffer = (char *) malloc(READ_BUFFER_SIZE)) == NULL) {
     printf("Buffer allocation failed (input read buffer)\n");
     return 0;
   }
   param.buffer = buffer;
 
   /// [Phase 1] START
-  if ((param.input_fd = open(argv[1], O_RDONLY | O_NONBLOCK)) == -1) {
+  if ((param.input_fd = open(argv[1], O_RDONLY)) == -1) {
     printf("[Error] failed to open input file %s\n", argv[1]);
     return 0;
   }
-  param.total_file_size = lseek(param.input_fd, 0, SEEK_END);
+  param.file_size = lseek(param.input_fd, 0, SEEK_END);
 
-  if ((param.output_fd = open(argv[2], O_RDWR | O_CREAT | O_TRUNC | O_SYNC, 0777)) == -1) {
+  if ((param.output_fd = open(argv[2], O_WRONLY | O_CREAT | O_TRUNC | O_SYNC, 0777)) == -1) {
     printf("[Error] failed to open input file %s\n", argv[2]);
     return 0;
   }
 
-  if (param.total_file_size <= BUFFER_SIZE) {
+  chrono::time_point<chrono::system_clock> t1, t2;
+  long long int duration;
+
+  if (param.file_size <= READ_BUFFER_SIZE) {
     t1 = chrono::high_resolution_clock::now();
     phase_small_file(param);
     t2 = chrono::high_resolution_clock::now();
     duration = chrono::duration_cast<chrono::milliseconds>(t2 - t1).count();
     cout << "[Phase small file] took: " << duration << " (milliseconds)" << endl;
   } else {
+    /// [Phase 1] START
     t1 = chrono::high_resolution_clock::now();
     phase1(param);
     t2 = chrono::high_resolution_clock::now();
@@ -78,15 +90,6 @@ int main(int argc, char *argv[]) {
     duration = chrono::duration_cast<chrono::milliseconds>(t2 - t1).count();
     cout << "[Phase2] took: " << duration << " (milliseconds)" << endl;
     /// [Phase 2] END
-
-    /// [Phase 3] START
-    t1 = chrono::high_resolution_clock::now();
-    phase3(param);
-    t2 = chrono::high_resolution_clock::now();
-
-    duration = chrono::duration_cast<chrono::milliseconds>(t2 - t1).count();
-    cout << "[Phase3] took: " << duration << " (milliseconds)" << endl;
-    /// [Phase 3] END
   }
   check_output(argv[2], param.buffer);
 
@@ -101,8 +104,11 @@ int main(int argc, char *argv[]) {
   if (param.buffer != NULL) {
     free(param.buffer);
   }
-  t2 = chrono::high_resolution_clock::now();
+  if (param.sorted_keys != NULL) {
+    free(param.sorted_keys);
+  }
 
+  t2 = chrono::high_resolution_clock::now();
   duration = chrono::duration_cast<chrono::milliseconds>(t2 - t1).count();
   cout << "[Clean up] took: " << duration << " (milliseconds)" << endl;
 
@@ -110,30 +116,34 @@ int main(int argc, char *argv[]) {
 }
 
 void phase_small_file(param_t &param) {
-  for (size_t offset = 0; offset < param.total_file_size;) {
-    size_t ret = pread(param.input_fd, param.buffer + offset, param.total_file_size - offset, offset);
+  chrono::time_point<chrono::system_clock> t1, t2;
+  long long int duration;
+
+  for (size_t offset = 0; offset < param.file_size;) {
+    size_t ret = pread(param.input_fd, param.buffer + offset, param.file_size - offset, offset);
     offset += ret;
   }
 
   t1 = chrono::high_resolution_clock::now();
-  radix_sort::parallel_radix_sort((tuple_t *) param.buffer, param.total_file_size / TUPLE_SIZE, 0);
+  radix_sort::parallel_radix_sort((tuple_t *) param.buffer, param.file_size / TUPLE_SIZE, 0);
   t2 = chrono::high_resolution_clock::now();
 
   duration = chrono::duration_cast<chrono::milliseconds>(t2 - t1).count();
   cout << "[Phase1] sorting: " << duration << " (milliseconds)" << endl;
 
-  for (size_t offset = 0; offset < param.total_file_size;) {
-    size_t ret = pwrite(param.output_fd, param.buffer + offset, param.total_file_size - offset, offset);
+  for (size_t offset = 0; offset < param.file_size;) {
+    size_t ret = pwrite(param.output_fd, param.buffer + offset, param.file_size - offset, offset);
     offset += ret;
   }
 }
 
 void phase1(param_t &param) {
-  size_t file_size = param.total_file_size; // Input file size
-  size_t num_tuples = file_size / TUPLE_SIZE; // Number of tuples
-  size_t num_partitions = (file_size - 1) / BUFFER_SIZE + 1; // Total cycles run to process the input file
+  chrono::time_point<chrono::system_clock> t1, t2;
+  long long int duration;
 
-  t1 = chrono::high_resolution_clock::now();
+  size_t file_size = param.file_size; // Input file size
+  size_t num_tuples = file_size / TUPLE_SIZE; // Number of tuples
+  size_t num_partitions = (file_size - 1) / READ_BUFFER_SIZE + 1; // Total cycles run to process the input file
 
   tuple_key_t *keys;
   if ((keys = (tuple_key_t *) malloc(sizeof(tuple_key_t) * num_tuples)) == NULL) {
@@ -145,8 +155,9 @@ void phase1(param_t &param) {
   size_t key_offset = 0;
   size_t head_offset = 0;
   for (size_t i = 0; i < num_partitions; i++) {
-    size_t read_amount = i != num_partitions - 1 ? BUFFER_SIZE :
-                         (file_size - 1) % BUFFER_SIZE + 1; // The last part will have remainders
+    // Read to buffer
+    size_t read_amount = i != num_partitions - 1 ? READ_BUFFER_SIZE :
+                         (file_size - 1) % READ_BUFFER_SIZE + 1; // The last part will have remainders
 
     for (size_t offset = 0; offset < read_amount;) {
       size_t ret = pread(param.input_fd, param.buffer + offset, head_offset + read_amount - offset,
@@ -155,17 +166,29 @@ void phase1(param_t &param) {
     }
     head_offset += read_amount;
 
-    tuple_t *data = (tuple_t *) param.buffer; // Need to use buffer as tuple type below, just a typecasting pointer
-    // Need to extract only the keys
+    // Key copy
     for (size_t j = 0; j < read_amount / TUPLE_SIZE; j++) {
-      memcpy(&keys[key_offset + j], &data[j], KEY_SIZE);
+      memcpy(&keys[key_offset + j], ((tuple_t *) param.buffer) + j, KEY_SIZE);
     }
     key_offset += (read_amount / TUPLE_SIZE);
-  }
 
-  t2 = chrono::high_resolution_clock::now();
-  duration = chrono::duration_cast<chrono::milliseconds>(t2 - t1).count();
-  cout << "[Phase1] reading: " << duration << " (milliseconds)" << endl;
+    radix_sort::parallel_radix_sort((tuple_t *) param.buffer, read_amount / TUPLE_SIZE, 0);
+
+    int output_fd;
+    string filename(TMP_DIRECTORY);
+    filename += to_string(i) + TMP_FILE_SUFFIX;
+    if ((output_fd = open(filename.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_SYNC, 0777)) == -1) {
+      printf("[Error] failed to open input file %s\n", filename.c_str());
+      return;
+    }
+
+    for (size_t offset = 0; offset < read_amount;) {
+      size_t ret = pwrite(output_fd, param.buffer + offset, read_amount - offset, offset);
+      offset += ret;
+    }
+
+    close(output_fd);
+  }
 
   // Sort the key list, ascending order
   t1 = chrono::high_resolution_clock::now();
@@ -187,100 +210,98 @@ void phase1(param_t &param) {
     memcpy(&thresholds[i - 1], &keys[chunk_size * i], KEY_SIZE);
   }
 
-  param.total_file_size = file_size;
+  param.file_size = file_size;
+  param.num_tuples = num_tuples;
   param.thresholds = thresholds;
   param.num_partitions = num_partitions;
-
-  free(keys);
+  param.sorted_keys = keys;
 }
 
 void phase2(param_t &param) {
-  size_t head_offsets[param.num_partitions];
+  int tmp_fds[param.num_partitions];
+  char *input_buffers[param.num_partitions];
+  size_t buffer_size = READ_BUFFER_SIZE / param.num_partitions;
   for (size_t i = 0; i < param.num_partitions; i++) {
-    head_offsets[i] = BUFFER_SIZE * i;
-  }
-
-  for (size_t partition_id = 0; partition_id < param.num_partitions; partition_id++) {
-    size_t head_offset = BUFFER_SIZE * partition_id;
-    size_t read_amount = partition_id != param.num_partitions - 1 ? BUFFER_SIZE :
-                         (param.total_file_size - 1) % BUFFER_SIZE + 1; // The last part will have remainders
-
-    t1 = chrono::high_resolution_clock::now();
-
-    for (size_t offset = 0; offset < read_amount;) {
-      size_t ret = pread(param.input_fd, param.buffer + offset, read_amount - offset,
-                         head_offset + offset);
-      offset += ret;
+    string filename(TMP_DIRECTORY);
+    filename += to_string(i) + TMP_FILE_SUFFIX;
+    if ((tmp_fds[i] = open(filename.c_str(), O_RDONLY)) == -1) {
+      printf("[Error] failed to open input file %s\n", filename.c_str());
+      return;
     }
-
-    t2 = chrono::high_resolution_clock::now();
-    duration = chrono::duration_cast<chrono::milliseconds>(t2 - t1).count();
-    cout << "[Phase2] reading (" << partition_id << "): " << duration << " (milliseconds)" << endl;
-
-    t1 = chrono::high_resolution_clock::now();
-    size_t buckets[param.num_partitions];
-    counting_sort::parallel_counting_sort((tuple_t *) param.buffer, read_amount / TUPLE_SIZE, param.thresholds,
-                                          buckets, param.num_partitions, 1);
-    t2 = chrono::high_resolution_clock::now();
-    duration = chrono::duration_cast<chrono::milliseconds>(t2 - t1).count();
-    cout << "[Phase2] counting sort (" << partition_id << "): " << duration << " (milliseconds)" << endl;
-
-    t1 = chrono::high_resolution_clock::now();
-    size_t accumulated = 0;
-    for (size_t j = 0; j < param.num_partitions; j++) {
-      size_t sz = TUPLE_SIZE * buckets[j];
-      size_t head = head_offsets[j];
-      head_offsets[j] += sz;
-      for (size_t offset = 0; offset < sz;) {
-        size_t ret = pwrite(param.output_fd, param.buffer + offset + accumulated,
-                            sz - offset, head + offset);
+    input_buffers[i] = i != param.num_partitions - 1 ? param.buffer + (i + 1) * buffer_size
+                                                     : param.buffer;
+    // Since last partition's first chunk is already set in param.buffer from before, leave it there.
+    if (i != param.num_partitions) {
+      for (size_t offset = 0; offset < buffer_size;) {
+        size_t ret = pread(tmp_fds[i], input_buffers[i], buffer_size - offset, offset);
         offset += ret;
       }
-      accumulated += sz;
     }
-    t2 = chrono::high_resolution_clock::now();
-    duration = chrono::duration_cast<chrono::milliseconds>(t2 - t1).count();
-    cout << "[Phase2] writing (" << partition_id << "): " << duration << " (milliseconds)" << endl;
   }
-}
+  char *output_buffer;
+  if ((output_buffer = (char *) malloc(sizeof(char) * WRITE_BUFFER_SIZE)) == NULL) {
+    printf("Buffer allocation failed (output write buffer)\n");
+    return;
+  }
 
-void phase3(param_t &param) {
-  // Just a type casting
-  tuple_t *data = (tuple_t *) param.buffer;
+  size_t num_partitions = param.num_partitions;
+  section_t output_buffer_section = {0, WRITE_BUFFER_SIZE};
+  section_t input_buffer_sections[param.num_partitions];
+  section_t input_buffer_global_sections[param.num_partitions];
 
   for (size_t partition_id = 0; partition_id < param.num_partitions; partition_id++) {
-    size_t head_offset = BUFFER_SIZE * partition_id;
-    size_t read_amount = partition_id != param.num_partitions - 1 ? BUFFER_SIZE :
-                         (param.total_file_size - 1) % BUFFER_SIZE + 1; // The last part will have remainders
-
-    t1 = chrono::high_resolution_clock::now();
-    for (size_t offset = 0; offset < read_amount;) {
-      size_t ret = pread(param.output_fd, param.buffer + offset, read_amount - offset,
-                         head_offset + offset);
-      offset += ret;
-    }
-
-    t2 = chrono::high_resolution_clock::now();
-    duration = chrono::duration_cast<chrono::milliseconds>(t2 - t1).count();
-    cout << "[Phase3] reading (" << partition_id << "): " << duration << " (milliseconds)" << endl;
-
-    t1 = chrono::high_resolution_clock::now();
-    radix_sort::parallel_radix_sort(data, read_amount / TUPLE_SIZE, 0);
-    t2 = chrono::high_resolution_clock::now();
-    duration = chrono::duration_cast<chrono::milliseconds>(t2 - t1).count();
-    cout << "[Phase3] radix sort (" << partition_id << "): " << duration << " (milliseconds)" << endl;
-
-    t1 = chrono::high_resolution_clock::now();
-    for (size_t offset = 0; offset < read_amount;) {
-      size_t ret = pwrite(param.output_fd, param.buffer + offset, read_amount - offset,
-                          head_offset + offset);
-      offset += ret;
-    }
-
-    t2 = chrono::high_resolution_clock::now();
-    duration = chrono::duration_cast<chrono::milliseconds>(t2 - t1).count();
-    cout << "[Phase3] writing (" << partition_id << "): " << duration << " (milliseconds)" << endl;
+    input_buffer_global_sections[partition_id].head = buffer_size; // Already read the first chunks
+    input_buffer_global_sections[partition_id].tail = READ_BUFFER_SIZE;
+    input_buffer_sections[partition_id].head = 0;
+    input_buffer_sections[partition_id].tail = buffer_size;
   }
+
+  size_t output_offset = 0;
+  // Before stepping into this step, we must fill in the input buffers with the first ata sets
+  for (size_t tuple_id = 0; tuple_id < param.num_tuples; tuple_id++) {
+    tuple_key_t &key = param.sorted_keys[tuple_id];
+
+    size_t idx;
+    for (idx = 0; idx < param.num_partitions; idx++) {
+      if (input_buffer_sections[idx].head == input_buffer_sections[idx].tail) {
+        continue;
+      }
+
+      tuple_key_t &comp = *(tuple_key_t *) (input_buffers[idx] + input_buffer_sections[idx].head);
+      if (key == comp) {
+        memcpy(output_buffer + output_buffer_section.head, &key, TUPLE_SIZE);
+        input_buffer_sections[idx].head += TUPLE_SIZE;
+        output_buffer_section.head += TUPLE_SIZE;
+        break;
+      }
+    }
+
+    // If partition buffer is all read, read another chunk
+    if (input_buffer_sections[idx].head == input_buffer_sections[idx].tail) {
+      // Read another chunk only if available
+      if (input_buffer_global_sections[idx].head != input_buffer_global_sections[idx].tail) {
+        for (size_t offset = 0; offset < buffer_size;) {
+          size_t ret = pread(tmp_fds[idx], input_buffers[idx], buffer_size - offset,
+                             input_buffer_global_sections[idx].head + offset);
+          offset += ret;
+        }
+        input_buffer_global_sections[idx].head += buffer_size;
+        input_buffer_sections[idx].head = 0;
+      }
+    }
+
+    // If output buffer is full, flush
+    if (output_buffer_section.head == output_buffer_section.tail) {
+      for (size_t offset = 0; offset < WRITE_BUFFER_SIZE;) {
+        size_t ret = pwrite(param.output_fd, output_buffer, WRITE_BUFFER_SIZE - offset, output_offset + offset);
+        offset += ret;
+      }
+      output_buffer_section.head = 0;
+      output_offset += WRITE_BUFFER_SIZE;
+    }
+  }
+
+  free(output_buffer);
 }
 
 void check_output(char *filename, char *buffer) {
@@ -292,7 +313,7 @@ void check_output(char *filename, char *buffer) {
 
   size_t file_size = lseek(fd, 0, SEEK_END);                  // Input file size
   size_t num_tuples = file_size / TUPLE_SIZE;                       // Number of tuples
-  size_t num_partitions = (file_size - 1) / BUFFER_SIZE + 1;   // Total cycles run to process the input file
+  size_t num_partitions = (file_size - 1) / READ_BUFFER_SIZE + 1;   // Total cycles run to process the input file
 
   tuple_key_t *keys;
   if ((keys = (tuple_key_t *) malloc(sizeof(tuple_key_t) * num_tuples)) == NULL) {
@@ -304,8 +325,8 @@ void check_output(char *filename, char *buffer) {
   size_t key_offset = 0;
   size_t head_offset = 0;
   for (size_t i = 0; i < num_partitions; i++) {
-    size_t read_amount = i != num_partitions - 1 ? BUFFER_SIZE :
-                         (file_size - 1) % BUFFER_SIZE + 1; // The last part will have remainders
+    size_t read_amount = i != num_partitions - 1 ? READ_BUFFER_SIZE :
+                         (file_size - 1) % READ_BUFFER_SIZE + 1; // The last part will have remainders
 
     for (size_t offset = 0; offset < read_amount;) {
       size_t ret = pread(fd, buffer + offset, head_offset + read_amount - offset,
@@ -314,7 +335,7 @@ void check_output(char *filename, char *buffer) {
     }
     head_offset += read_amount;
 
-    tuple_t *data = (tuple_t *) buffer; // Need to use buffer as tuple type below, just a typecasting pointer
+    tuple_t *data = (tuple_t *) buffer;
     // Need to extract only the keys
     for (size_t j = 0; j < read_amount / TUPLE_SIZE; j++) {
       memcpy(&keys[key_offset + j], &data[j], KEY_SIZE);
@@ -325,7 +346,6 @@ void check_output(char *filename, char *buffer) {
   size_t cnt = 0;
   for (size_t i = 1; i < num_tuples; i++) {
     if (keys[i - 1] > keys[i]) {
-//      printf("[Validation] Tuple %zu is in the wrong place\n", i);
       cnt++;
     }
   }
